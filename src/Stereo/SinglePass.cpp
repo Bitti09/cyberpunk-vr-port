@@ -12,7 +12,9 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <type_traits>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 extern void Log(const char*,...);
@@ -242,10 +244,11 @@ int EyeOf(const List& l) {
 // ---- detours: chained over whatever the vtable had --------------------------------------------------------------
 constexpr size_t kSlots=81;
 struct Chain {void** vtable{};void* next[kSlots]{};};
-std::array<Chain,16> chains;
+std::array<Chain,8> chains;
 std::atomic<uint32_t> chainCount{0};
 std::mutex chainMutex;
 const Chain* ChainOf(void* self) {
+    if(!self)return nullptr;
     void** vtable=*reinterpret_cast<void***>(self);
     const auto n=chainCount.load(std::memory_order_acquire);
     for(uint32_t i=0;i<n;++i)if(chains[i].vtable==vtable)return &chains[i];
@@ -378,151 +381,194 @@ void Reset(L* list) {
 }
 }
 std::atomic<bool> active{false};   // a material root exists: state is kept
-template<size_t Slot,class Sig> struct Flushing;
-template<size_t Slot,class R,class Self,class... A> struct Flushing<Slot,R(STDMETHODCALLTYPE*)(Self*,A...)> {
-    static R STDMETHODCALLTYPE Detour(Self* self,A... a) {
-        auto* list=reinterpret_cast<ID3D12GraphicsCommandList*>(self);
-        if(active.load(std::memory_order_relaxed)){auto& l=Of(list);if(l.unsent)Cause(Slot);if(l.unsent || l.dirty)FlushList(list,l);}
-        if constexpr(Slot==9)occ::Close(list);   // Close: the occlusion prototype's queries resolved
-        using Fn=R(STDMETHODCALLTYPE*)(Self*,A...);
-        return reinterpret_cast<Fn>(ChainOf(self)->next[Slot])(self,a...);
-    }
-};
 using L=ID3D12GraphicsCommandList;using L1=ID3D12GraphicsCommandList1;using L2=ID3D12GraphicsCommandList2;
 using L4=ID3D12GraphicsCommandList4;using L5=ID3D12GraphicsCommandList5;using L6=ID3D12GraphicsCommandList6;
 using L7=ID3D12GraphicsCommandList7;
+template<size_t I>
+struct Detours {
+    template<size_t Slot,class Sig> struct Flushing;
+    template<size_t Slot,class R,class Self,class... A> struct Flushing<Slot,R(STDMETHODCALLTYPE*)(Self*,A...)> {
+        static R STDMETHODCALLTYPE Detour(Self* self,A... a) {
+            if(!self) {
+                if constexpr(std::is_same_v<R,HRESULT>)return E_INVALIDARG;
+                else return;
+            }
+            auto* list=reinterpret_cast<ID3D12GraphicsCommandList*>(self);
+            if(active.load(std::memory_order_relaxed)){auto& l=Of(list);if(l.unsent)Cause(Slot);if(l.unsent || l.dirty)FlushList(list,l);}
+            if constexpr(Slot==9)occ::Close(list);   // Close: the occlusion prototype's queries resolved
+            using Fn=R(STDMETHODCALLTYPE*)(Self*,A...);
+            const auto next=reinterpret_cast<Fn>(chains[I].next[Slot]);
+            if(!next) {
+                if constexpr(std::is_same_v<R,HRESULT>)return E_FAIL;
+                else return;
+            }
+            return next(self,a...);
+        }
+    };
+    // ClearState: a flush, then nothing of the old state holds.
+    static void STDMETHODCALLTYPE ClearState(L* self,ID3D12PipelineState* pso) {
+        if(!self)return;
+        if(active.load(std::memory_order_relaxed)){auto& l=Of(self);FlushList(self,l);l.eng=l.act=Gfx{};l.engPso=nullptr;l.dirty=false;}
+        if(const auto next=reinterpret_cast<void(STDMETHODCALLTYPE*)(L*,ID3D12PipelineState*)>(chains[I].next[11]))next(self,pso);
+    }
+    // SetPipelineState1 (a ray-tracing state object) takes the pipeline slot.
+    static void STDMETHODCALLTYPE StateObject(L4* self,ID3D12StateObject* object) {
+        if(!self)return;
+        auto* list=reinterpret_cast<L*>(self);
+        if(active.load(std::memory_order_relaxed)){auto& l=Of(list);FlushList(list,l);l.eng.pso=l.act.pso=nullptr;l.engPso=nullptr;}
+        if(const auto next=reinterpret_cast<void(STDMETHODCALLTYPE*)(L4*,ID3D12StateObject*)>(chains[I].next[75]))next(self,object);
+    }
+    static void STDMETHODCALLTYPE Topology(L* self,D3D12_PRIMITIVE_TOPOLOGY t) {
+        if(!self)return;
+        if(active.load(std::memory_order_relaxed)){auto& l=Of(self);if(Hold(l)){l.eng.topo=t;l.dirty=true;return;}l.eng.topo=l.act.topo=t;}
+        if(const auto next=reinterpret_cast<void(STDMETHODCALLTYPE*)(L*,D3D12_PRIMITIVE_TOPOLOGY)>(chains[I].next[20]))next(self,t);
+    }
+    static void STDMETHODCALLTYPE Root(L* self,ID3D12RootSignature* root) {
+        if(!self)return;
+        if(active.load(std::memory_order_relaxed)) {
+            auto& l=Of(self);
+            if(l.unsent && root!=l.eng.root){Cause(30);FlushList(self,l);}   // the kept draws need the material root
+            // Setting the bound root again keeps its arguments; another root starts without any.
+            if(root!=l.act.root){l.act.mask=0;if(root==l.eng.root && l.eng.mask)l.dirty=true;}
+            if(root!=l.eng.root)l.eng.mask=0;
+            l.eng.root=l.act.root=root;
+        }
+        if(const auto next=reinterpret_cast<void(STDMETHODCALLTYPE*)(L*,ID3D12RootSignature*)>(chains[I].next[30]))next(self,root);
+    }
+    static void STDMETHODCALLTYPE Table(L* self,UINT index,D3D12_GPU_DESCRIPTOR_HANDLE handle) {
+        if(!self)return;
+        if(active.load(std::memory_order_relaxed) && index<kTables) {
+            auto& l=Of(self);
+            l.eng.tables[index]=handle.ptr;l.eng.mask|=1ull<<index;
+            if(Hold(l) && l.act.root==l.eng.root){l.dirty=true;return;}
+            l.act.tables[index]=handle.ptr;l.act.mask|=1ull<<index;
+        }
+        if(const auto next=reinterpret_cast<void(STDMETHODCALLTYPE*)(L*,UINT,D3D12_GPU_DESCRIPTOR_HANDLE)>(chains[I].next[32]))next(self,index,handle);
+    }
+    static void STDMETHODCALLTYPE Targets(L* self,UINT count,const D3D12_CPU_DESCRIPTOR_HANDLE* rt,BOOL contiguous,const D3D12_CPU_DESCRIPTOR_HANDLE* ds) {
+        if(!self)return;
+        if(active.load(std::memory_order_relaxed)) {
+            auto& l=Of(self);
+            const UINT n=rt?std::min<UINT>(count,8):0;const UINT listed=contiguous?std::min<UINT>(n,1):n;
+            bool same=l.targetsKnown && count==l.targetCount && contiguous==l.targetsContiguous && (ds?ds->ptr:0)==l.depthTarget;
+            for(UINT i=0;same && i<listed;++i)same=rt[i].ptr==l.targets[i];
+            if(!same){if(l.unsent)Cause(46);if(l.unsent || l.dirty)FlushList(self,l);}
+            l.targetsKnown=count<=8;l.targetCount=count;l.targetsContiguous=contiguous;l.depthTarget=ds?ds->ptr:0;
+            for(UINT i=0;i<listed;++i)l.targets[i]=rt[i].ptr;
+        }
+        if(const auto next=reinterpret_cast<void(STDMETHODCALLTYPE*)(L*,UINT,const D3D12_CPU_DESCRIPTOR_HANDLE*,BOOL,const D3D12_CPU_DESCRIPTOR_HANDLE*)>(
+            chains[I].next[46]))next(self,count,rt,contiguous,ds);
+    }
+    static void STDMETHODCALLTYPE StencilRef(L* self,UINT value) {
+        if(!self)return;
+        if(active.load(std::memory_order_relaxed)) {
+            auto& l=Of(self);l.eng.stencil=value;l.eng.stencilKnown=true;
+            if(Hold(l)){l.dirty=true;return;}
+            l.act.stencil=value;l.act.stencilKnown=true;
+        }
+        if(const auto next=reinterpret_cast<void(STDMETHODCALLTYPE*)(L*,UINT)>(chains[I].next[24]))next(self,value);
+    }
+    static void STDMETHODCALLTYPE BlendFactor(L* self,const FLOAT* factor) {
+        if(!self)return;
+        if(const auto next=reinterpret_cast<void(STDMETHODCALLTYPE*)(L*,const FLOAT*)>(chains[I].next[23]))next(self,factor);
+        if(active.load(std::memory_order_relaxed)) {
+            auto& l=Of(self);static constexpr FLOAT ones[4]{1,1,1,1};const FLOAT* f=factor?factor:ones;
+            std::memcpy(l.eng.blend,f,sizeof(l.eng.blend));std::memcpy(l.act.blend,f,sizeof(l.act.blend));l.eng.blendKnown=l.act.blendKnown=true;
+        }
+    }
+    static void STDMETHODCALLTYPE ShadingRate(L5* self,D3D12_SHADING_RATE rate,const D3D12_SHADING_RATE_COMBINER* combiners) {
+        if(!self)return;
+        if(const auto next=reinterpret_cast<void(STDMETHODCALLTYPE*)(L5*,D3D12_SHADING_RATE,const D3D12_SHADING_RATE_COMBINER*)>(chains[I].next[77]))
+            next(self,rate,combiners);
+        if(active.load(std::memory_order_relaxed)) {
+            auto& l=Of(reinterpret_cast<L*>(self));
+            const D3D12_SHADING_RATE_COMBINER c[2]{combiners?combiners[0]:D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,
+                                                   combiners?combiners[1]:D3D12_SHADING_RATE_COMBINER_PASSTHROUGH};
+            l.eng.rate=l.act.rate=rate;std::memcpy(l.eng.combiners,c,sizeof(c));std::memcpy(l.act.combiners,c,sizeof(c));
+            l.eng.rateKnown=l.act.rateKnown=true;
+        }
+    }
+    static void STDMETHODCALLTYPE ShadingImage(L5* self,ID3D12Resource* image) {
+        if(!self)return;
+        if(const auto next=reinterpret_cast<void(STDMETHODCALLTYPE*)(L5*,ID3D12Resource*)>(chains[I].next[78]))next(self,image);
+        if(active.load(std::memory_order_relaxed)){auto& l=Of(reinterpret_cast<L*>(self));l.eng.image=l.act.image=image;l.eng.imageKnown=l.act.imageKnown=true;}
+    }
+    static void STDMETHODCALLTYPE IndexBuffer(L* self,const D3D12_INDEX_BUFFER_VIEW* view) {
+        if(!self)return;
+        if(active.load(std::memory_order_relaxed)) {
+            auto& l=Of(self);l.eng.ib=view?*view:D3D12_INDEX_BUFFER_VIEW{};
+            if(Hold(l)){l.dirty=true;return;}
+            l.act.ib=l.eng.ib;
+        }
+        if(const auto next=reinterpret_cast<void(STDMETHODCALLTYPE*)(L*,const D3D12_INDEX_BUFFER_VIEW*)>(chains[I].next[43]))next(self,view);
+    }
+    static void Install(void** vtable,size_t lastSlot) {
 #define CVR_SP(slot,...) {slot,reinterpret_cast<void*>(&Flushing<slot,__VA_ARGS__>::Detour)}
-struct FlushSlot {size_t slot;void* detour;};
-const FlushSlot kFlushSlots[]{
-    CVR_SP(9,HRESULT(STDMETHODCALLTYPE*)(L*)),
-    CVR_SP(14,void(STDMETHODCALLTYPE*)(L*,UINT,UINT,UINT)),
-    CVR_SP(15,void(STDMETHODCALLTYPE*)(L*,ID3D12Resource*,UINT64,ID3D12Resource*,UINT64,UINT64)),
-    CVR_SP(16,void(STDMETHODCALLTYPE*)(L*,const D3D12_TEXTURE_COPY_LOCATION*,UINT,UINT,UINT,const D3D12_TEXTURE_COPY_LOCATION*,const D3D12_BOX*)),
-    CVR_SP(17,void(STDMETHODCALLTYPE*)(L*,ID3D12Resource*,ID3D12Resource*)),
-    CVR_SP(18,void(STDMETHODCALLTYPE*)(L*,ID3D12Resource*,const D3D12_TILED_RESOURCE_COORDINATE*,const D3D12_TILE_REGION_SIZE*,ID3D12Resource*,UINT64,D3D12_TILE_COPY_FLAGS)),
-    CVR_SP(19,void(STDMETHODCALLTYPE*)(L*,ID3D12Resource*,UINT,ID3D12Resource*,UINT,DXGI_FORMAT)),
-    CVR_SP(26,void(STDMETHODCALLTYPE*)(L*,UINT,const D3D12_RESOURCE_BARRIER*)),
-    CVR_SP(27,void(STDMETHODCALLTYPE*)(L*,ID3D12GraphicsCommandList*)),
-    CVR_SP(28,void(STDMETHODCALLTYPE*)(L*,UINT,ID3D12DescriptorHeap* const*)),
-    CVR_SP(34,void(STDMETHODCALLTYPE*)(L*,UINT,UINT,UINT)),
-    CVR_SP(36,void(STDMETHODCALLTYPE*)(L*,UINT,UINT,const void*,UINT)),
-    CVR_SP(38,void(STDMETHODCALLTYPE*)(L*,UINT,D3D12_GPU_VIRTUAL_ADDRESS)),
-    CVR_SP(40,void(STDMETHODCALLTYPE*)(L*,UINT,D3D12_GPU_VIRTUAL_ADDRESS)),
-    CVR_SP(42,void(STDMETHODCALLTYPE*)(L*,UINT,D3D12_GPU_VIRTUAL_ADDRESS)),
-    CVR_SP(45,void(STDMETHODCALLTYPE*)(L*,UINT,UINT,const D3D12_STREAM_OUTPUT_BUFFER_VIEW*)),
-    CVR_SP(47,void(STDMETHODCALLTYPE*)(L*,D3D12_CPU_DESCRIPTOR_HANDLE,D3D12_CLEAR_FLAGS,FLOAT,UINT8,UINT,const D3D12_RECT*)),
-    CVR_SP(48,void(STDMETHODCALLTYPE*)(L*,D3D12_CPU_DESCRIPTOR_HANDLE,const FLOAT*,UINT,const D3D12_RECT*)),
-    CVR_SP(49,void(STDMETHODCALLTYPE*)(L*,D3D12_GPU_DESCRIPTOR_HANDLE,D3D12_CPU_DESCRIPTOR_HANDLE,ID3D12Resource*,const UINT*,UINT,const D3D12_RECT*)),
-    CVR_SP(50,void(STDMETHODCALLTYPE*)(L*,D3D12_GPU_DESCRIPTOR_HANDLE,D3D12_CPU_DESCRIPTOR_HANDLE,ID3D12Resource*,const FLOAT*,UINT,const D3D12_RECT*)),
-    CVR_SP(51,void(STDMETHODCALLTYPE*)(L*,ID3D12Resource*,const D3D12_DISCARD_REGION*)),
-    CVR_SP(52,void(STDMETHODCALLTYPE*)(L*,ID3D12QueryHeap*,D3D12_QUERY_TYPE,UINT)),
-    CVR_SP(53,void(STDMETHODCALLTYPE*)(L*,ID3D12QueryHeap*,D3D12_QUERY_TYPE,UINT)),
-    CVR_SP(54,void(STDMETHODCALLTYPE*)(L*,ID3D12QueryHeap*,D3D12_QUERY_TYPE,UINT,UINT,ID3D12Resource*,UINT64)),
-    CVR_SP(55,void(STDMETHODCALLTYPE*)(L*,ID3D12Resource*,UINT64,D3D12_PREDICATION_OP)),
-    CVR_SP(59,void(STDMETHODCALLTYPE*)(L*,ID3D12CommandSignature*,UINT,ID3D12Resource*,UINT64,ID3D12Resource*,UINT64)),
-    CVR_SP(60,void(STDMETHODCALLTYPE*)(L1*,ID3D12Resource*,UINT64,ID3D12Resource*,UINT64,UINT,ID3D12Resource* const*,const D3D12_SUBRESOURCE_RANGE_UINT64*)),
-    CVR_SP(61,void(STDMETHODCALLTYPE*)(L1*,ID3D12Resource*,UINT64,ID3D12Resource*,UINT64,UINT,ID3D12Resource* const*,const D3D12_SUBRESOURCE_RANGE_UINT64*)),
-    CVR_SP(62,void(STDMETHODCALLTYPE*)(L1*,FLOAT,FLOAT)),
-    CVR_SP(63,void(STDMETHODCALLTYPE*)(L1*,UINT,UINT,D3D12_SAMPLE_POSITION*)),
-    CVR_SP(64,void(STDMETHODCALLTYPE*)(L1*,ID3D12Resource*,UINT,UINT,UINT,ID3D12Resource*,UINT,D3D12_RECT*,DXGI_FORMAT,D3D12_RESOLVE_MODE)),
-    CVR_SP(65,void(STDMETHODCALLTYPE*)(L1*,UINT)),
-    CVR_SP(66,void(STDMETHODCALLTYPE*)(L2*,UINT,const D3D12_WRITEBUFFERIMMEDIATE_PARAMETER*,const D3D12_WRITEBUFFERIMMEDIATE_MODE*)),
-    CVR_SP(68,void(STDMETHODCALLTYPE*)(L4*,UINT,const D3D12_RENDER_PASS_RENDER_TARGET_DESC*,const D3D12_RENDER_PASS_DEPTH_STENCIL_DESC*,D3D12_RENDER_PASS_FLAGS)),
-    CVR_SP(69,void(STDMETHODCALLTYPE*)(L4*)),
-    CVR_SP(70,void(STDMETHODCALLTYPE*)(L4*,ID3D12MetaCommand*,const void*,SIZE_T)),
-    CVR_SP(71,void(STDMETHODCALLTYPE*)(L4*,ID3D12MetaCommand*,const void*,SIZE_T)),
-    CVR_SP(72,void(STDMETHODCALLTYPE*)(L4*,const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC*,UINT,const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC*)),
-    CVR_SP(73,void(STDMETHODCALLTYPE*)(L4*,const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC*,UINT,const D3D12_GPU_VIRTUAL_ADDRESS*)),
-    CVR_SP(74,void(STDMETHODCALLTYPE*)(L4*,D3D12_GPU_VIRTUAL_ADDRESS,D3D12_GPU_VIRTUAL_ADDRESS,D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE)),
-    CVR_SP(76,void(STDMETHODCALLTYPE*)(L4*,const D3D12_DISPATCH_RAYS_DESC*)),
-    CVR_SP(79,void(STDMETHODCALLTYPE*)(L6*,UINT,UINT,UINT)),
-    CVR_SP(80,void(STDMETHODCALLTYPE*)(L7*,UINT32,const D3D12_BARRIER_GROUP*)),
-};
+        struct FlushSlot {size_t slot;void* detour;};
+        static const FlushSlot kFlushSlots[]{
+            CVR_SP(9,HRESULT(STDMETHODCALLTYPE*)(L*)),
+            CVR_SP(14,void(STDMETHODCALLTYPE*)(L*,UINT,UINT,UINT)),
+            CVR_SP(15,void(STDMETHODCALLTYPE*)(L*,ID3D12Resource*,UINT64,ID3D12Resource*,UINT64,UINT64)),
+            CVR_SP(16,void(STDMETHODCALLTYPE*)(L*,const D3D12_TEXTURE_COPY_LOCATION*,UINT,UINT,UINT,const D3D12_TEXTURE_COPY_LOCATION*,const D3D12_BOX*)),
+            CVR_SP(17,void(STDMETHODCALLTYPE*)(L*,ID3D12Resource*,ID3D12Resource*)),
+            CVR_SP(18,void(STDMETHODCALLTYPE*)(L*,ID3D12Resource*,const D3D12_TILED_RESOURCE_COORDINATE*,const D3D12_TILE_REGION_SIZE*,ID3D12Resource*,UINT64,D3D12_TILE_COPY_FLAGS)),
+            CVR_SP(19,void(STDMETHODCALLTYPE*)(L*,ID3D12Resource*,UINT,ID3D12Resource*,UINT,DXGI_FORMAT)),
+            CVR_SP(26,void(STDMETHODCALLTYPE*)(L*,UINT,const D3D12_RESOURCE_BARRIER*)),
+            CVR_SP(27,void(STDMETHODCALLTYPE*)(L*,ID3D12GraphicsCommandList*)),
+            CVR_SP(28,void(STDMETHODCALLTYPE*)(L*,UINT,ID3D12DescriptorHeap* const*)),
+            CVR_SP(34,void(STDMETHODCALLTYPE*)(L*,UINT,UINT,UINT)),
+            CVR_SP(36,void(STDMETHODCALLTYPE*)(L*,UINT,UINT,const void*,UINT)),
+            CVR_SP(38,void(STDMETHODCALLTYPE*)(L*,UINT,D3D12_GPU_VIRTUAL_ADDRESS)),
+            CVR_SP(40,void(STDMETHODCALLTYPE*)(L*,UINT,D3D12_GPU_VIRTUAL_ADDRESS)),
+            CVR_SP(42,void(STDMETHODCALLTYPE*)(L*,UINT,D3D12_GPU_VIRTUAL_ADDRESS)),
+            CVR_SP(45,void(STDMETHODCALLTYPE*)(L*,UINT,UINT,const D3D12_STREAM_OUTPUT_BUFFER_VIEW*)),
+            CVR_SP(47,void(STDMETHODCALLTYPE*)(L*,D3D12_CPU_DESCRIPTOR_HANDLE,D3D12_CLEAR_FLAGS,FLOAT,UINT8,UINT,const D3D12_RECT*)),
+            CVR_SP(48,void(STDMETHODCALLTYPE*)(L*,D3D12_CPU_DESCRIPTOR_HANDLE,const FLOAT*,UINT,const D3D12_RECT*)),
+            CVR_SP(49,void(STDMETHODCALLTYPE*)(L*,D3D12_GPU_DESCRIPTOR_HANDLE,D3D12_CPU_DESCRIPTOR_HANDLE,ID3D12Resource*,const UINT*,UINT,const D3D12_RECT*)),
+            CVR_SP(50,void(STDMETHODCALLTYPE*)(L*,D3D12_GPU_DESCRIPTOR_HANDLE,D3D12_CPU_DESCRIPTOR_HANDLE,ID3D12Resource*,const FLOAT*,UINT,const D3D12_RECT*)),
+            CVR_SP(51,void(STDMETHODCALLTYPE*)(L*,ID3D12Resource*,const D3D12_DISCARD_REGION*)),
+            CVR_SP(52,void(STDMETHODCALLTYPE*)(L*,ID3D12QueryHeap*,D3D12_QUERY_TYPE,UINT)),
+            CVR_SP(53,void(STDMETHODCALLTYPE*)(L*,ID3D12QueryHeap*,D3D12_QUERY_TYPE,UINT)),
+            CVR_SP(54,void(STDMETHODCALLTYPE*)(L*,ID3D12QueryHeap*,D3D12_QUERY_TYPE,UINT,UINT,ID3D12Resource*,UINT64)),
+            CVR_SP(55,void(STDMETHODCALLTYPE*)(L*,ID3D12Resource*,UINT64,D3D12_PREDICATION_OP)),
+            CVR_SP(59,void(STDMETHODCALLTYPE*)(L*,ID3D12CommandSignature*,UINT,ID3D12Resource*,UINT64,ID3D12Resource*,UINT64)),
+            CVR_SP(60,void(STDMETHODCALLTYPE*)(L1*,ID3D12Resource*,UINT64,ID3D12Resource*,UINT64,UINT,ID3D12Resource* const*,const D3D12_SUBRESOURCE_RANGE_UINT64*)),
+            CVR_SP(61,void(STDMETHODCALLTYPE*)(L1*,ID3D12Resource*,UINT64,ID3D12Resource*,UINT64,UINT,ID3D12Resource* const*,const D3D12_SUBRESOURCE_RANGE_UINT64*)),
+            CVR_SP(62,void(STDMETHODCALLTYPE*)(L1*,FLOAT,FLOAT)),
+            CVR_SP(63,void(STDMETHODCALLTYPE*)(L1*,UINT,UINT,D3D12_SAMPLE_POSITION*)),
+            CVR_SP(64,void(STDMETHODCALLTYPE*)(L1*,ID3D12Resource*,UINT,UINT,UINT,ID3D12Resource*,UINT,D3D12_RECT*,DXGI_FORMAT,D3D12_RESOLVE_MODE)),
+            CVR_SP(65,void(STDMETHODCALLTYPE*)(L1*,UINT)),
+            CVR_SP(66,void(STDMETHODCALLTYPE*)(L2*,UINT,const D3D12_WRITEBUFFERIMMEDIATE_PARAMETER*,const D3D12_WRITEBUFFERIMMEDIATE_MODE*)),
+            CVR_SP(68,void(STDMETHODCALLTYPE*)(L4*,UINT,const D3D12_RENDER_PASS_RENDER_TARGET_DESC*,const D3D12_RENDER_PASS_DEPTH_STENCIL_DESC*,D3D12_RENDER_PASS_FLAGS)),
+            CVR_SP(69,void(STDMETHODCALLTYPE*)(L4*)),
+            CVR_SP(70,void(STDMETHODCALLTYPE*)(L4*,ID3D12MetaCommand*,const void*,SIZE_T)),
+            CVR_SP(71,void(STDMETHODCALLTYPE*)(L4*,ID3D12MetaCommand*,const void*,SIZE_T)),
+            CVR_SP(72,void(STDMETHODCALLTYPE*)(L4*,const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC*,UINT,const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC*)),
+            CVR_SP(73,void(STDMETHODCALLTYPE*)(L4*,const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC*,UINT,const D3D12_GPU_VIRTUAL_ADDRESS*)),
+            CVR_SP(74,void(STDMETHODCALLTYPE*)(L4*,D3D12_GPU_VIRTUAL_ADDRESS,D3D12_GPU_VIRTUAL_ADDRESS,D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE)),
+            CVR_SP(76,void(STDMETHODCALLTYPE*)(L4*,const D3D12_DISPATCH_RAYS_DESC*)),
+            CVR_SP(79,void(STDMETHODCALLTYPE*)(L6*,UINT,UINT,UINT)),
+            CVR_SP(80,void(STDMETHODCALLTYPE*)(L7*,UINT32,const D3D12_BARRIER_GROUP*)),
+        };
 #undef CVR_SP
-// ClearState: a flush, then nothing of the old state holds.
-void STDMETHODCALLTYPE ClearState(L* self,ID3D12PipelineState* pso) {
-    if(active.load(std::memory_order_relaxed)){auto& l=Of(self);FlushList(self,l);l.eng=l.act=Gfx{};l.engPso=nullptr;l.dirty=false;}
-    reinterpret_cast<void(STDMETHODCALLTYPE*)(L*,ID3D12PipelineState*)>(ChainOf(self)->next[11])(self,pso);
-}
-// SetPipelineState1 (a ray-tracing state object) takes the pipeline slot.
-void STDMETHODCALLTYPE StateObject(L4* self,ID3D12StateObject* object) {
-    auto* list=reinterpret_cast<L*>(self);
-    if(active.load(std::memory_order_relaxed)){auto& l=Of(list);FlushList(list,l);l.eng.pso=l.act.pso=nullptr;l.engPso=nullptr;}
-    reinterpret_cast<void(STDMETHODCALLTYPE*)(L4*,ID3D12StateObject*)>(ChainOf(self)->next[75])(self,object);
-}
-void STDMETHODCALLTYPE Topology(L* self,D3D12_PRIMITIVE_TOPOLOGY t) {
-    if(active.load(std::memory_order_relaxed)){auto& l=Of(self);if(Hold(l)){l.eng.topo=t;l.dirty=true;return;}l.eng.topo=l.act.topo=t;}
-    reinterpret_cast<void(STDMETHODCALLTYPE*)(L*,D3D12_PRIMITIVE_TOPOLOGY)>(ChainOf(self)->next[20])(self,t);
-}
-void STDMETHODCALLTYPE Root(L* self,ID3D12RootSignature* root) {
-    if(active.load(std::memory_order_relaxed)) {
-        auto& l=Of(self);
-        if(l.unsent && root!=l.eng.root){Cause(30);FlushList(self,l);}   // the kept draws need the material root
-        // Setting the bound root again keeps its arguments; another root starts without any.
-        if(root!=l.act.root){l.act.mask=0;if(root==l.eng.root && l.eng.mask)l.dirty=true;}
-        if(root!=l.eng.root)l.eng.mask=0;
-        l.eng.root=l.act.root=root;
+        const auto put=[&](size_t slot,void* detour){if(slot<=lastSlot)InterlockedExchangePointer(reinterpret_cast<void* volatile*>(vtable+slot),detour);};
+        for(const auto& f:kFlushSlots)put(f.slot,f.detour);
+        put(11,reinterpret_cast<void*>(&ClearState));
+        put(75,reinterpret_cast<void*>(&StateObject));
+        put(20,reinterpret_cast<void*>(&Topology));
+        put(30,reinterpret_cast<void*>(&Root));
+        put(32,reinterpret_cast<void*>(&Table));
+        put(43,reinterpret_cast<void*>(&IndexBuffer));
+        put(46,reinterpret_cast<void*>(&Targets));
+        put(23,reinterpret_cast<void*>(&BlendFactor));
+        put(24,reinterpret_cast<void*>(&StencilRef));
+        put(77,reinterpret_cast<void*>(&ShadingRate));
+        put(78,reinterpret_cast<void*>(&ShadingImage));
     }
-    reinterpret_cast<void(STDMETHODCALLTYPE*)(L*,ID3D12RootSignature*)>(ChainOf(self)->next[30])(self,root);
-}
-void STDMETHODCALLTYPE Table(L* self,UINT index,D3D12_GPU_DESCRIPTOR_HANDLE handle) {
-    if(active.load(std::memory_order_relaxed) && index<kTables) {
-        auto& l=Of(self);
-        l.eng.tables[index]=handle.ptr;l.eng.mask|=1ull<<index;
-        if(Hold(l) && l.act.root==l.eng.root){l.dirty=true;return;}
-        l.act.tables[index]=handle.ptr;l.act.mask|=1ull<<index;
-    }
-    reinterpret_cast<void(STDMETHODCALLTYPE*)(L*,UINT,D3D12_GPU_DESCRIPTOR_HANDLE)>(ChainOf(self)->next[32])(self,index,handle);
-}
-void STDMETHODCALLTYPE Targets(L* self,UINT count,const D3D12_CPU_DESCRIPTOR_HANDLE* rt,BOOL contiguous,const D3D12_CPU_DESCRIPTOR_HANDLE* ds) {
-    if(active.load(std::memory_order_relaxed)) {
-        auto& l=Of(self);
-        const UINT n=rt?std::min<UINT>(count,8):0;const UINT listed=contiguous?std::min<UINT>(n,1):n;
-        bool same=l.targetsKnown && count==l.targetCount && contiguous==l.targetsContiguous && (ds?ds->ptr:0)==l.depthTarget;
-        for(UINT i=0;same && i<listed;++i)same=rt[i].ptr==l.targets[i];
-        if(!same){if(l.unsent)Cause(46);if(l.unsent || l.dirty)FlushList(self,l);}
-        l.targetsKnown=count<=8;l.targetCount=count;l.targetsContiguous=contiguous;l.depthTarget=ds?ds->ptr:0;
-        for(UINT i=0;i<listed;++i)l.targets[i]=rt[i].ptr;
-    }
-    reinterpret_cast<void(STDMETHODCALLTYPE*)(L*,UINT,const D3D12_CPU_DESCRIPTOR_HANDLE*,BOOL,const D3D12_CPU_DESCRIPTOR_HANDLE*)>(
-        ChainOf(self)->next[46])(self,count,rt,contiguous,ds);
-}
-void STDMETHODCALLTYPE StencilRef(L* self,UINT value) {
-    if(active.load(std::memory_order_relaxed)) {
-        auto& l=Of(self);l.eng.stencil=value;l.eng.stencilKnown=true;
-        if(Hold(l)){l.dirty=true;return;}
-        l.act.stencil=value;l.act.stencilKnown=true;
-    }
-    reinterpret_cast<void(STDMETHODCALLTYPE*)(L*,UINT)>(ChainOf(self)->next[24])(self,value);
-}
-void STDMETHODCALLTYPE BlendFactor(L* self,const FLOAT* factor) {
-    reinterpret_cast<void(STDMETHODCALLTYPE*)(L*,const FLOAT*)>(ChainOf(self)->next[23])(self,factor);
-    if(active.load(std::memory_order_relaxed)) {
-        auto& l=Of(self);static constexpr FLOAT ones[4]{1,1,1,1};const FLOAT* f=factor?factor:ones;
-        std::memcpy(l.eng.blend,f,sizeof(l.eng.blend));std::memcpy(l.act.blend,f,sizeof(l.act.blend));l.eng.blendKnown=l.act.blendKnown=true;
-    }
-}
-void STDMETHODCALLTYPE ShadingRate(L5* self,D3D12_SHADING_RATE rate,const D3D12_SHADING_RATE_COMBINER* combiners) {
-    reinterpret_cast<void(STDMETHODCALLTYPE*)(L5*,D3D12_SHADING_RATE,const D3D12_SHADING_RATE_COMBINER*)>(ChainOf(self)->next[77])(self,rate,combiners);
-    if(active.load(std::memory_order_relaxed)) {
-        auto& l=Of(reinterpret_cast<L*>(self));
-        const D3D12_SHADING_RATE_COMBINER c[2]{combiners?combiners[0]:D3D12_SHADING_RATE_COMBINER_PASSTHROUGH,
-                                               combiners?combiners[1]:D3D12_SHADING_RATE_COMBINER_PASSTHROUGH};
-        l.eng.rate=l.act.rate=rate;std::memcpy(l.eng.combiners,c,sizeof(c));std::memcpy(l.act.combiners,c,sizeof(c));
-        l.eng.rateKnown=l.act.rateKnown=true;
-    }
-}
-void STDMETHODCALLTYPE ShadingImage(L5* self,ID3D12Resource* image) {
-    reinterpret_cast<void(STDMETHODCALLTYPE*)(L5*,ID3D12Resource*)>(ChainOf(self)->next[78])(self,image);
-    if(active.load(std::memory_order_relaxed)){auto& l=Of(reinterpret_cast<L*>(self));l.eng.image=l.act.image=image;l.eng.imageKnown=l.act.imageKnown=true;}
-}
-void STDMETHODCALLTYPE IndexBuffer(L* self,const D3D12_INDEX_BUFFER_VIEW* view) {
-    if(active.load(std::memory_order_relaxed)) {
-        auto& l=Of(self);l.eng.ib=view?*view:D3D12_INDEX_BUFFER_VIEW{};
-        if(Hold(l)){l.dirty=true;return;}
-        l.act.ib=l.eng.ib;
-    }
-    reinterpret_cast<void(STDMETHODCALLTYPE*)(L*,const D3D12_INDEX_BUFFER_VIEW*)>(ChainOf(self)->next[43])(self,view);
+};
+template<size_t... Is>
+void DispatchInstall(uint32_t idx,void** vtable,size_t lastSlot,std::index_sequence<Is...>) {
+    ((idx==Is ? (Detours<Is>::Install(vtable,lastSlot),true) : false) || ...);
 }
 }
 
@@ -535,19 +581,7 @@ void Install(void** vtable,size_t lastSlot) {
     c.vtable=vtable;
     for(size_t i=9;i<=lastSlot && i<kSlots;++i)c.next[i]=vtable[i];
     chainCount.store(n+1,std::memory_order_release);
-    const auto put=[&](size_t slot,void* detour){if(slot<=lastSlot)InterlockedExchangePointer(reinterpret_cast<void* volatile*>(vtable+slot),detour);};
-    for(const auto& f:kFlushSlots)put(f.slot,f.detour);
-    put(11,reinterpret_cast<void*>(&ClearState));
-    put(75,reinterpret_cast<void*>(&StateObject));
-    put(20,reinterpret_cast<void*>(&Topology));
-    put(30,reinterpret_cast<void*>(&Root));
-    put(32,reinterpret_cast<void*>(&Table));
-    put(43,reinterpret_cast<void*>(&IndexBuffer));
-    put(46,reinterpret_cast<void*>(&Targets));
-    put(23,reinterpret_cast<void*>(&BlendFactor));
-    put(24,reinterpret_cast<void*>(&StencilRef));
-    put(77,reinterpret_cast<void*>(&ShadingRate));
-    put(78,reinterpret_cast<void*>(&ShadingImage));
+    DispatchInstall(n,vtable,lastSlot,std::make_index_sequence<chains.size()>{});
     Log("[single-pass] command-list vtable %p chained (slots 9..%zu)\n",static_cast<void*>(vtable),lastSlot);
 }
 void Activate() {active.store(true,std::memory_order_release);}

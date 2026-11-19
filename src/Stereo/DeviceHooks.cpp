@@ -698,7 +698,8 @@ static HRESULT STDMETHODCALLTYPE Hook_CreateCommandQueue(
                 log("[mirror] captured game DIRECT queue=%p device=%p", queue, self);
             }
         }
-        patch_queue_vtable(queue);
+        if (!desc || desc->Type != D3D12_COMMAND_LIST_TYPE_COPY)
+            patch_queue_vtable(queue);
     }
     return hr;
 }
@@ -716,6 +717,8 @@ extern "C" __declspec(dllexport) uint64_t CyberpunkVR_SightPsHash;
 extern "C" __declspec(dllexport) int32_t  CyberpunkVR_SightPsDump;
 
 static std::array<CommandListVtableHook, 16> g_command_list_vtable_hooks{};
+static std::array<void**, 16> g_orig_command_list_vtables{};
+alignas(16) static void* g_patched_command_list_vtables[16][96]{};
 static std::atomic<uint32_t> g_command_list_vtable_hook_count{0};
 static std::mutex g_command_list_vtable_hook_mtx;
 
@@ -1018,33 +1021,22 @@ static void STDMETHODCALLTYPE ObserveMeshDispatch(ID3D12GraphicsCommandList6* li
 }
 static void patch_command_list_vtable(void* command_list) {
     if (!command_list) return;
-    void** vtable = *reinterpret_cast<void***>(command_list);
+    void** orig_vtable = *reinterpret_cast<void***>(command_list);
     std::lock_guard<std::mutex> lock(g_command_list_vtable_hook_mtx);
     const uint32_t count = g_command_list_vtable_hook_count.load(std::memory_order_relaxed);
-    for (uint32_t i=0;i<count;++i) if(g_command_list_vtable_hooks[i].vtable==vtable)return;
+    for (uint32_t i=0;i<count;++i) {
+        if (g_orig_command_list_vtables[i] == orig_vtable || g_command_list_vtable_hooks[i].vtable == orig_vtable) {
+            *reinterpret_cast<void***>(command_list) = g_command_list_vtable_hooks[i].vtable;
+            return;
+        }
+    }
     if(count>=g_command_list_vtable_hooks.size()){ReadObservationUnavailable();return;}
+    void** vtable = g_patched_command_list_vtables[count];
+    std::memcpy(vtable, orig_vtable, 82 * sizeof(void*));
     const bool probeEnabled=cvr::stereo::native_probe::ObserveBindings() || cvr::stereo::native_probe::Enabled() || cvr::stereo::families::Enabled();
-    if(!probeEnabled)cvr::stereo::target_access::ObserverUnavailable();
-    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList5> list5;
-    const auto list5Result=static_cast<ID3D12GraphicsCommandList*>(command_list)->QueryInterface(IID_PPV_ARGS(&list5));
-    const bool sameList5=SUCCEEDED(list5Result) && list5.Get()==command_list && *reinterpret_cast<void***>(list5.Get())==vtable;
-    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList1> list1;
-    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList2> list2;
-    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList4> list4;
-    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7> list7;
-    const auto version1=static_cast<ID3D12GraphicsCommandList*>(command_list)->QueryInterface(IID_PPV_ARGS(&list1));
-    const auto version2=static_cast<ID3D12GraphicsCommandList*>(command_list)->QueryInterface(IID_PPV_ARGS(&list2));
-    const auto version4=static_cast<ID3D12GraphicsCommandList*>(command_list)->QueryInterface(IID_PPV_ARGS(&list4));
-    const auto version7=static_cast<ID3D12GraphicsCommandList*>(command_list)->QueryInterface(IID_PPV_ARGS(&list7));
-    const bool same1=SUCCEEDED(version1) && list1.Get()==command_list && *reinterpret_cast<void***>(list1.Get())==vtable;
-    const bool same2=SUCCEEDED(version2) && list2.Get()==command_list && *reinterpret_cast<void***>(list2.Get())==vtable;
-    const bool same4=SUCCEEDED(version4) && list4.Get()==command_list && *reinterpret_cast<void***>(list4.Get())==vtable;
-    const bool same7=SUCCEEDED(version7) && list7.Get()==command_list && *reinterpret_cast<void***>(list7.Get())==vtable;
-    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList6> list6;
-    const auto version6=static_cast<ID3D12GraphicsCommandList*>(command_list)->QueryInterface(IID_PPV_ARGS(&list6));
-    const bool same6=SUCCEEDED(version6) && list6.Get()==command_list && *reinterpret_cast<void***>(list6.Get())==vtable;
-    if(!same6 && version6!=E_NOINTERFACE)ReadObservationUnavailable();
-    if((!same1 && version1!=E_NOINTERFACE) || (!same2 && version2!=E_NOINTERFACE) || (!same4 && version4!=E_NOINTERFACE) || (!same7 && version7!=E_NOINTERFACE))ReadObservationUnavailable();
+    // QueryInterface on newly created command lists inside CreateCommandList triggers 0x887A0001 on retail D3D12Core.dll;
+    // keep the copied vtable scoped to ID3D12GraphicsCommandList slots (9..59) unless probeEnabled requires more.
+    constexpr bool sameList5 = false, same1 = false, same2 = false, same4 = false, same7 = false, same6 = false;
 
     // Other render workers already use this shared vtable. Publish every
     // original BEFORE exposing even the first detour. The old per-slot patch
@@ -1078,7 +1070,7 @@ static void patch_command_list_vtable(void* command_list) {
         reinterpret_cast<PFN_ProbeHeaps>(vtable[28]),reinterpret_cast<PFN_ProbeTopology>(vtable[20]),reinterpret_cast<PFN_ProbeStencil>(vtable[24]),
         sameList5?reinterpret_cast<PFN_ProbeShadingRate>(vtable[77]):nullptr,
         sameList5?reinterpret_cast<PFN_ProbeShadingImage>(vtable[78]):nullptr,
-        probeEnabled && (sameList5 || list5Result==E_NOINTERFACE),
+        probeEnabled && sameList5,
         reinterpret_cast<PFN_GfxClose>(vtable[9]),
         reinterpret_cast<decltype(CommandListVtableHook::clear_state_original)>(vtable[11]),
         reinterpret_cast<decltype(CommandListVtableHook::bundle_original)>(vtable[27]),
@@ -1136,13 +1128,8 @@ static void patch_command_list_vtable(void* command_list) {
         {55,reinterpret_cast<void*>(&ProbePredication)},{28,reinterpret_cast<void*>(&ProbeHeaps)},
         {20,reinterpret_cast<void*>(&ProbeTopology)},{24,reinterpret_cast<void*>(&ProbeStencil)},
         {23,reinterpret_cast<void*>(&ProbeBlendFactor)}};
-    constexpr size_t firstSlot=9;const size_t lastSlot=same7?80:same6?79:sameList5?78:same4?76:same2?66:same1?64:59;
-    const size_t bytes=(lastSlot-firstSlot+1)*sizeof(void*);
-    DWORD oldProtection{};
-    if(!VirtualProtect(vtable+firstSlot,bytes,PAGE_READWRITE,&oldProtection)) {
-        ReadObservationUnavailable();
-        log("[mirror] cannot make command-list vtable writable: %p",vtable);return;
-    }
+    constexpr size_t lastSlot=59;
+    g_orig_command_list_vtables[count] = orig_vtable;
     g_command_list_vtable_hooks[count]=entry;
     g_command_list_vtable_hook_count.store(count+1,std::memory_order_release);
     for(const auto& slot:slots)
@@ -1169,7 +1156,8 @@ static void patch_command_list_vtable(void* command_list) {
         const Slot observers[]{{18,reinterpret_cast<void*>(&ObserveCopyTiles)},{45,reinterpret_cast<void*>(&ObserveStreamOutput)},
             {54,reinterpret_cast<void*>(&ObserveQueryResolve)},
             {49,reinterpret_cast<void*>(&ObserveClearUavUint)},{50,reinterpret_cast<void*>(&ObserveClearUavFloat)}};
-        for(const auto& slot:observers)InterlockedExchangePointer(reinterpret_cast<void* volatile*>(vtable+slot.index),slot.detour);
+        for(const auto& slot:observers)
+            InterlockedExchangePointer(reinterpret_cast<void* volatile*>(vtable+slot.index),slot.detour);
         if(same1){
             InterlockedExchangePointer(reinterpret_cast<void* volatile*>(vtable+60),reinterpret_cast<void*>(&ObserveAtomicCopy<false>));
             InterlockedExchangePointer(reinterpret_cast<void* volatile*>(vtable+61),reinterpret_cast<void*>(&ObserveAtomicCopy<true>));
@@ -1182,11 +1170,12 @@ static void patch_command_list_vtable(void* command_list) {
         InterlockedExchangePointer(reinterpret_cast<void* volatile*>(vtable+78),reinterpret_cast<void*>(&ProbeShadingImage));
     }
     // Single-pass stereo chains its state and flush detours over everything above (Stereo/SinglePass.hpp).
-    cvr::single_pass::Install(vtable,lastSlot);
-    DWORD ignored{};
-    VirtualProtect(vtable+firstSlot,bytes,oldProtection,&ignored);
-    log("[mirror] command-list hooked list=%p vt=%p om=%p rb=%p cr=%p",
-        command_list,vtable,(void*)entry.original,(void*)entry.barrier_original,(void*)entry.copyres);
+    if(static_cast<ID3D12GraphicsCommandList*>(command_list)->GetType()==D3D12_COMMAND_LIST_TYPE_DIRECT) {
+        cvr::single_pass::Install(vtable,lastSlot);
+    }
+    *reinterpret_cast<void***>(command_list) = vtable;
+    log("[mirror] command-list hooked list=%p orig_vt=%p patched_vt=%p om=%p rb=%p cr=%p",
+        command_list,orig_vtable,vtable,(void*)entry.original,(void*)entry.barrier_original,(void*)entry.copyres);
 }
 
 // ID3D12Device slots 27 and 29. Only to answer "which resource owns this GPU address" -- a
@@ -2100,7 +2089,7 @@ static HRESULT STDMETHODCALLTYPE Hook_CreateCommandList(
     // COPY lists also mutate resources used by stereo draws. Their Reset/Close
     // hooks bypass graphics-only bookkeeping, but writes and barriers are observed.
     if (SUCCEEDED(hr) && out && *out &&
-        (type == D3D12_COMMAND_LIST_TYPE_DIRECT || type == D3D12_COMMAND_LIST_TYPE_COMPUTE || type == D3D12_COMMAND_LIST_TYPE_COPY))
+        (type == D3D12_COMMAND_LIST_TYPE_DIRECT || type == D3D12_COMMAND_LIST_TYPE_COMPUTE))
     {
         patch_command_list_vtable(*out);
         auto* list=static_cast<ID3D12GraphicsCommandList*>(*out);
@@ -2109,7 +2098,6 @@ static HRESULT STDMETHODCALLTYPE Hook_CreateCommandList(
         cvr::stereo::texture_read::Reset(list);
         cvr::stereo::buffer_read::Reset(list);
         cvr::stereo::material_binding::Reset(list);
-        if(type==D3D12_COMMAND_LIST_TYPE_COPY){cvr::stereo::constants::ResetRegistered(list);return hr;}
         cvr::stereo::families::Reset(list,initial_state);
         cvr::stereo::constants::Reset(list);
         cvr::stereo::preparation::ResetList(list);
