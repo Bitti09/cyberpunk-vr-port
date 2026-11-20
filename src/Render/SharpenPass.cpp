@@ -296,11 +296,15 @@ bool SharpenPass::RecordSharpen(ID3D12GraphicsCommandList* cmdList,
                                 float amount) {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (!cmdList || !srcColor || !dstColor || !m_pso ||
-        !std::isfinite(sharpness) || !std::isfinite(amount) ||
-        !Compatible(srcColor->GetDesc(), ColorViewFormat(m_colorFormat), m_width, m_height) ||
-        !Compatible(dstColor->GetDesc(), ColorViewFormat(m_colorFormat), m_width, m_height) ||
-        (IsSrgb(dstColor->GetDesc().Format) && dstColor->GetDesc().Format != m_colorFormat) ||
-        !(dstColor->GetDesc().Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)) return false;
+        !std::isfinite(sharpness) || !std::isfinite(amount)) return false;
+    
+    // Optimization: cache GetDesc() calls to avoid repeated queries.
+    const auto srcDesc = srcColor->GetDesc();
+    const auto dstDesc = dstColor->GetDesc();
+    if (!Compatible(srcDesc, ColorViewFormat(m_colorFormat), m_width, m_height) ||
+        !Compatible(dstDesc, ColorViewFormat(m_colorFormat), m_width, m_height) ||
+        (IsSrgb(dstDesc.Format) && dstDesc.Format != m_colorFormat) ||
+        !(dstDesc.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)) return false;
 
     if (!cvr::gpu::KeepCommandResources(cmdList, {srcColor, dstColor, m_scratch.Get(),
             m_srvHeap.Get(), m_rtvHeap.Get(), m_rootSig.Get(), m_pso.Get()})) {
