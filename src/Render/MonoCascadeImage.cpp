@@ -49,12 +49,19 @@ bool AtlasImage::Capture(ID3D12GraphicsCommandList* list,ID3D12Resource* source,
     if(!Compatible(source) || slice>=shape.DepthOrArraySize || !gpu::KeepCommandResources(list,{image.Get(),source}))return false;
     stereo::probe::Scope internal;
     ProfileRange timing(list,1,101+slice);
-    Barrier(list,source,slice,before,D3D12_RESOURCE_STATE_COPY_SOURCE);
-    Barrier(list,image.Get(),slice,D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_COPY_DEST);
+    // Optimization: batch the two pre-copy barriers into one call.
+    D3D12_RESOURCE_BARRIER barriers[2]{};
+    for(auto& b:barriers)b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    barriers[0].Transition={source,slice,before,D3D12_RESOURCE_STATE_COPY_SOURCE};
+    barriers[1].Transition={image.Get(),slice,D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_COPY_DEST};
+    list->ResourceBarrier(2,barriers);
     D3D12_TEXTURE_COPY_LOCATION from{},to{};from.pResource=source;from.SubresourceIndex=slice;to.pResource=image.Get();to.SubresourceIndex=slice;
     list->CopyTextureRegion(&to,0,0,0,&from,nullptr);
-    Barrier(list,image.Get(),slice,D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_COPY_SOURCE);
-    Barrier(list,source,slice,D3D12_RESOURCE_STATE_COPY_SOURCE,before);return true;
+    // Optimization: batch the two post-copy barriers into one call.
+    barriers[0].Transition={image.Get(),slice,D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_COPY_SOURCE};
+    barriers[1].Transition={source,slice,D3D12_RESOURCE_STATE_COPY_SOURCE,before};
+    list->ResourceBarrier(2,barriers);
+    return true;
 }
 bool AtlasImage::Restore(ID3D12GraphicsCommandList* list,ID3D12Resource* destination,UINT first,UINT count) {
     if(!Compatible(destination) || !count || first+count>shape.DepthOrArraySize || !gpu::KeepCommandResources(list,{image.Get(),destination}))return false;

@@ -318,14 +318,18 @@ bool SharpenPass::RecordSharpen(ID3D12GraphicsCommandList* cmdList,
     barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
     barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-    cmdList->ResourceBarrier(1, &barrier);
-
+    
     D3D12_RESOURCE_BARRIER targetBarrier{};
-    if (srcColor == dstColor) {
+    bool needsTargetBarrier = (srcColor == dstColor);
+    if (needsTargetBarrier) {
         targetBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
         targetBarrier.Transition = {dstColor, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
             D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET};
-        cmdList->ResourceBarrier(1, &targetBarrier);
+        // Optimization: batch both barriers into one call when both are needed.
+        D3D12_RESOURCE_BARRIER barriers[2] = {barrier, targetBarrier};
+        cmdList->ResourceBarrier(2, barriers);
+    } else {
+        cmdList->ResourceBarrier(1, &barrier);
     }
 
     auto rtvCpu = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
@@ -351,11 +355,16 @@ bool SharpenPass::RecordSharpen(ID3D12GraphicsCommandList* cmdList,
     cmdList->SetGraphicsRootDescriptorTable(1, m_srvHeap->GetGPUDescriptorHandleForHeapStart());
     cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     cmdList->DrawInstanced(3, 1, 0, 0);
-    if (srcColor == dstColor) {
+    
+    // Optimization: batch the post-draw barriers when both are needed.
+    if (needsTargetBarrier) {
         std::swap(targetBarrier.Transition.StateBefore, targetBarrier.Transition.StateAfter);
-        cmdList->ResourceBarrier(1, &targetBarrier);
+        std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
+        D3D12_RESOURCE_BARRIER barriers[2] = {targetBarrier, barrier};
+        cmdList->ResourceBarrier(2, barriers);
+    } else {
+        std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
+        cmdList->ResourceBarrier(1, &barrier);
     }
-    std::swap(barrier.Transition.StateBefore, barrier.Transition.StateAfter);
-    cmdList->ResourceBarrier(1, &barrier);
     return true;
 }

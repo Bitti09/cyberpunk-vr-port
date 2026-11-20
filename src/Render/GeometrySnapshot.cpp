@@ -75,8 +75,13 @@ HRESULT GeometrySnapshot::Capture(ID3D12GraphicsCommandList* list,const geometry
     for(const auto& copy:pending->copies)list->CopyBufferRegion(pending->gpu.Get(),copy.to,copy.source.Get(),copy.from,copy.bytes);
     for(auto& b:barriers)std::swap(b.Transition.StateBefore,b.Transition.StateAfter);
     if(!barriers.empty())list->ResourceBarrier(UINT(barriers.size()),barriers.data());
-    D3D12_RESOURCE_BARRIER b{};b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;b.Transition={pending->gpu.Get(),0,D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_COPY_SOURCE};list->ResourceBarrier(1,&b);
-    list->CopyResource(pending->readback.Get(),pending->gpu.Get());b.Transition.StateBefore=D3D12_RESOURCE_STATE_COPY_SOURCE;b.Transition.StateAfter=D3D12_RESOURCE_STATE_GENERIC_READ;list->ResourceBarrier(1,&b);
+    // Optimization: batch the two readback barriers into one call.
+    D3D12_RESOURCE_BARRIER readbackBarriers[2]{};
+    for(auto& b:readbackBarriers)b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    readbackBarriers[0].Transition={pending->gpu.Get(),0,D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_COPY_SOURCE};
+    list->CopyResource(pending->readback.Get(),pending->gpu.Get());
+    readbackBarriers[1].Transition={pending->gpu.Get(),0,D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_GENERIC_READ};
+    list->ResourceBarrier(2,readbackBarriers);
     storage_=std::move(pending);return S_OK;
 }catch(const std::bad_alloc&){return E_OUTOFMEMORY;}
 bool GeometrySnapshot::Seal(ID3D12Fence* fence,UINT64 value) {
