@@ -157,9 +157,14 @@ bool DepthCommitGate::Bind(ID3D12GraphicsCommandList* list,bool optimized)const{
 bool DepthCommitGate::Readback(ID3D12GraphicsCommandList* list){
     if(!storage_ || !list || !storage_->prepared || storage_->copied || !gpu::KeepCommandResources(list,{storage_.Get()}))return false;
     auto& s=*storage_.Get();probe::Scope internal;list->SetPredication(nullptr,0,D3D12_PREDICATION_OP_EQUAL_ZERO);
-    D3D12_RESOURCE_BARRIER b{};b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    b.Transition={s.decision.Get(),D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,D3D12_RESOURCE_STATE_PREDICATION,D3D12_RESOURCE_STATE_COPY_SOURCE};list->ResourceBarrier(1,&b);
-    list->CopyBufferRegion(s.readback.Get(),0,s.decision.Get(),0,8);std::swap(b.Transition.StateBefore,b.Transition.StateAfter);list->ResourceBarrier(1,&b);
+    // Optimization: batch the two barriers into one call.
+    D3D12_RESOURCE_BARRIER b[2]{};
+    for(auto& barrier:b)barrier.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    b[0].Transition={s.decision.Get(),D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,D3D12_RESOURCE_STATE_PREDICATION,D3D12_RESOURCE_STATE_COPY_SOURCE};
+    b[1].Transition={s.decision.Get(),D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,D3D12_RESOURCE_STATE_COPY_SOURCE,D3D12_RESOURCE_STATE_PREDICATION};
+    list->ResourceBarrier(1,&b[0]);
+    list->CopyBufferRegion(s.readback.Get(),0,s.decision.Get(),0,8);
+    list->ResourceBarrier(1,&b[1]);
     s.copied=true;return true;
 }
 HRESULT DepthCommitGate::Read(uint64_t& value)const{
