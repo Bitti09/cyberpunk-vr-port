@@ -48,6 +48,10 @@ namespace overlay { extern bool g_drawBarrelCross; }
 #include <MinHook.h>
 #include "Hooks/SwapChain.hpp"
 #include "Utils/LogThrottle.hpp"
+
+// Performance optimization switches (INI-configurable)
+extern "C" __declspec(dllexport) std::atomic<int32_t> CyberpunkVR_HudSkipUnchanged;
+extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_BarrierTimeSampleRate;
 #include "Hooks/Trampoline.hpp"
 #include "Utils/MemorySafe.hpp"
 #include "Core/Telemetry.hpp"
@@ -749,6 +753,18 @@ void PollLiveControls() {
         if (sscanf_s(line, "xr_mono_submit=%d", &intValue) == 1 ||
             sscanf_s(line, "xr_mono_submit = %d", &intValue) == 1) {
             xrMonoSubmit = intValue;
+            continue;
+        }
+        // Performance optimization: skip HUD panel capture when content unchanged
+        if (sscanf_s(line, "xr_hud_skip_unchanged=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_hud_skip_unchanged = %d", &intValue) == 1) {
+            CyberpunkVR_HudSkipUnchanged.store(intValue);
+            continue;
+        }
+        // Performance optimization: barrier timing QPC sampling rate (1=sample every, N=sample 1-in-N)
+        if (sscanf_s(line, "xr_barrier_sample_rate=%d", &intValue) == 1 ||
+            sscanf_s(line, "xr_barrier_sample_rate = %d", &intValue) == 1) {
+            CyberpunkVR_BarrierTimeSampleRate.store(intValue < 1 ? 1 : static_cast<uint32_t>(intValue));
             continue;
         }
         // -1 auto (thread on SteamVR, inline on Virtual Desktop), 0 inline, 1 thread.
@@ -2803,6 +2819,9 @@ void PersistLiveControlsUiState(const LiveControlsUiState& state) {
     fprintf(file, "xr_wheel_horn_radius=%.3f\n", state.xrWheelHornRadius > 0.0f ? state.xrWheelHornRadius : 0.12f);
     fprintf(file, "xr_vehicle_gun_trigger=%d\n", state.xrVehicleGunTrigger != 0 ? 1 : 0);
     fprintf(file, "xr_vehicle_throttle_trim=%.2f\n", state.xrVehicleThrottleTrim > 0.0f ? state.xrVehicleThrottleTrim : 0.5f);
+    // Performance optimization switches
+    fprintf(file, "xr_hud_skip_unchanged=%d\n", CyberpunkVR_HudSkipUnchanged.load());
+    fprintf(file, "xr_barrier_sample_rate=%u\n", CyberpunkVR_BarrierTimeSampleRate.load());
     fclose(file);
 
     WIN32_FILE_ATTRIBUTE_DATA fileData;
