@@ -520,33 +520,55 @@ void comp_main()
     //
     // A pixel that belongs to ANY highlighted object is skipped, which is what keeps this a thicker
     // line instead of a fill, and keeps the interior of the game's own highlights unchanged.
+    //
+    // Optimization: scan the neighborhood twice. First pass checks if there's ANY highlight (bit 0)
+    // in the neighborhood. If not, skip the second pass (the white check). This avoids the expensive
+    // 29-tap white scan when there's no highlight nearby at all.
     if (VRP_WHITE_GROW > 0)
     {
         const uint ownf = uint(_16.Load(int3(int2(gl_GlobalInvocationID.xy), 0)).y);
         if ((ownf & 1u) == 0u)
         {
-            float whiteNear = 0.0f;
+            // First pass: is there ANY highlight in the neighborhood? (bit 0)
+            bool anyHighlightNearby = false;
             [unroll] for (int gy2 = -VRP_WHITE_GROW; gy2 <= VRP_WHITE_GROW; ++gy2)
             {
                 [unroll] for (int gx2 = -VRP_WHITE_GROW; gx2 <= VRP_WHITE_GROW; ++gx2)
                 {
                     if (gx2 == 0 && gy2 == 0) continue;
-                    // Round, not square: a square neighbourhood thickens the diagonals half again as
-                    // much and the corners of a silhouette read as blobs.
                     if (gx2 * gx2 + gy2 * gy2 > VRP_WHITE_GROW * VRP_WHITE_GROW) continue;
                     const uint nx = uint(int(min(max(float(int(gl_GlobalInvocationID.x) + gx2), 0.0f), _149)));
                     const uint ny = uint(int(min(max(float(int(gl_GlobalInvocationID.y) + gy2), 0.0f), _147)));
                     const uint nf = uint(_16.Load(int3(uint2(nx, ny), 0u)).y);
-                    if ((nf & 1u) == 0u) continue;          // not part of a highlight
-                    if ((nf & 2u) != 0u) continue;          // the fill branch, not the outline one
-                    if (((nf >> 2u) & 7u) != 7u) continue;  // not white, so not ours
-                    whiteNear = 1.0f;
+                    if ((nf & 1u) != 0u) { anyHighlightNearby = true; break; }
                 }
+                if (anyHighlightNearby) break;
             }
-            if (whiteNear > 0.0f && VRP_GROW_ALPHA > _888)
+
+            // Second pass: only if there's a highlight nearby, check if it's white.
+            if (anyHighlightNearby)
             {
-                _885 = 1.0f; _886 = 1.0f; _887 = 1.0f;
-                _888 = VRP_GROW_ALPHA;
+                float whiteNear = 0.0f;
+                [unroll] for (int gy2 = -VRP_WHITE_GROW; gy2 <= VRP_WHITE_GROW; ++gy2)
+                {
+                    [unroll] for (int gx2 = -VRP_WHITE_GROW; gx2 <= VRP_WHITE_GROW; ++gx2)
+                    {
+                        if (gx2 == 0 && gy2 == 0) continue;
+                        if (gx2 * gx2 + gy2 * gy2 > VRP_WHITE_GROW * VRP_WHITE_GROW) continue;
+                        const uint nx = uint(int(min(max(float(int(gl_GlobalInvocationID.x) + gx2), 0.0f), _149)));
+                        const uint ny = uint(int(min(max(float(int(gl_GlobalInvocationID.y) + gy2), 0.0f), _147)));
+                        const uint nf = uint(_16.Load(int3(uint2(nx, ny), 0u)).y);
+                        if ((nf & 1u) == 0u) continue;          // not part of a highlight
+                        if ((nf & 2u) != 0u) continue;          // the fill branch, not the outline one
+                        if (((nf >> 2u) & 7u) != 7u) continue;  // not white, so not ours
+                        whiteNear = 1.0f;
+                    }
+                }
+                if (whiteNear > 0.0f && VRP_GROW_ALPHA > _888)
+                {
+                    _885 = 1.0f; _886 = 1.0f; _887 = 1.0f;
+                    _888 = VRP_GROW_ALPHA;
+                }
             }
         }
     }

@@ -722,15 +722,26 @@ alignas(16) static void* g_patched_command_list_vtables[16][96]{};
 static std::atomic<uint32_t> g_command_list_vtable_hook_count{0};
 static std::mutex g_command_list_vtable_hook_mtx;
 
+// Per-thread one-entry cache for the vtable lookup. Most threads only see one or two command lists
+// in a session, so a single cache entry has near-total hit rate. The key is the vtable pointer read
+// fresh each call (never the object pointer), because patch_command_list_vtable can re-point a list
+// to a patched copy. On a miss, fall back to the linear scan of g_command_list_vtable_hooks.
+thread_local void* t_cached_vtable{};
+thread_local const CommandListVtableHook* t_cached_entry{};
+
 const CommandListVtableHook* command_list_hook_entry(
         ID3D12GraphicsCommandList* command_list) {
     if (!command_list) return nullptr;
     void** vtable = *reinterpret_cast<void***>(command_list);
+    if (t_cached_vtable == vtable && t_cached_entry) return t_cached_entry;
     const uint32_t count =
         g_command_list_vtable_hook_count.load(std::memory_order_acquire);
     for (uint32_t i = 0; i < count; ++i) {
-        if (g_command_list_vtable_hooks[i].vtable == vtable)
-            return &g_command_list_vtable_hooks[i];
+        if (g_command_list_vtable_hooks[i].vtable == vtable) {
+            t_cached_vtable = vtable;
+            t_cached_entry = &g_command_list_vtable_hooks[i];
+            return t_cached_entry;
+        }
     }
     return nullptr;
 }

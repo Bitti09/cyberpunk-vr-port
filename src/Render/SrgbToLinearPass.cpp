@@ -71,12 +71,14 @@ SourceView GetSourceView(DXGI_FORMAT resourceFormat) {
     switch (resourceFormat) {
         case DXGI_FORMAT_R8G8B8A8_TYPELESS:
         case DXGI_FORMAT_R8G8B8A8_UNORM:
-            return {DXGI_FORMAT_R8G8B8A8_UNORM, true};
+            // Hardware sRGB decode: create an _UNORM_SRGB SRV so the GPU decodes automatically.
+            // This is faster than per-pixel pow() in the shader.
+            return {DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, false};
         case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
             return {DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, false};
         case DXGI_FORMAT_B8G8R8A8_TYPELESS:
         case DXGI_FORMAT_B8G8R8A8_UNORM:
-            return {DXGI_FORMAT_B8G8R8A8_UNORM, true};
+            return {DXGI_FORMAT_B8G8R8A8_UNORM_SRGB, false};
         case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
             return {DXGI_FORMAT_B8G8R8A8_UNORM_SRGB, false};
         default:

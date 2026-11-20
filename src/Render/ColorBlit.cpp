@@ -251,22 +251,26 @@ float4 PSMain(VSOut input) : SV_Target {
 
     // _1531 and _2347: the scanline flicker. Its mean is about 0.66 and it gates the glow, so
     // holding it at 1 is not neutral -- it makes the halo half again too strong.
-    float t   = frameConst[0].x;
-    float k   = t * 0.005;
-    float st  = sin(t);
-    float x1  = saturate(d.x) + 1.0;
-    float yy  = (saturate(d.y) + 1.0) - k;
-    float cy  = saturate(abs(cos(yy * 650.0)));
-    float f   = saturate(((st * 0.2 + 0.54)
-              + (saturate(abs(cos((x1 + k) * 550.0))) + saturate(abs(cos((x1 - k) * 250.0)))) * 0.18)
-              * (cy * 0.4 + 0.6));
-    f = lerp(1.0, f, flicker);
-    float s2   = st * 0.01;
-    float scan = (saturate((cos((s2 + d.y) * 1700.0) + 1.0) * 0.75) * 0.0085 + 0.0015)
-               * ((s2 + 0.54 + st * 0.1)
-                  + (saturate(abs(cos((x1 + k) * 350.0))) + saturate(abs(cos((x1 - k) * 350.0)))) * 0.18)
-               + 0.99;
-    scan = lerp(1.0, scan, flicker);
+    // Optimization: if flicker==0, f and scan are both 1.0; skip the 7 transcendentals.
+    float f = 1.0, scan = 1.0;
+    if (flicker > 0.0) {
+        float t   = frameConst[0].x;
+        float k   = t * 0.005;
+        float st  = sin(t);
+        float x1  = saturate(d.x) + 1.0;
+        float yy  = (saturate(d.y) + 1.0) - k;
+        float cy  = saturate(abs(cos(yy * 650.0)));
+        f   = saturate(((st * 0.2 + 0.54)
+                  + (saturate(abs(cos((x1 + k) * 550.0))) + saturate(abs(cos((x1 - k) * 250.0)))) * 0.18)
+                  * (cy * 0.4 + 0.6));
+        f = lerp(1.0, f, flicker);
+        float s2   = st * 0.01;
+        scan = (saturate((cos((s2 + d.y) * 1700.0) + 1.0) * 0.75) * 0.0085 + 0.0015)
+                   * ((s2 + 0.54 + st * 0.1)
+                      + (saturate(abs(cos((x1 + k) * 350.0))) + saturate(abs(cos((x1 - k) * 350.0)))) * 0.18)
+                   + 0.99;
+        scan = lerp(1.0, scan, flicker);
+    }
 
     // GIVE THE HUD A DISTANCE. Applied here, AFTER the flicker and scanline terms are derived
     // from the unshifted d: those are a screen-space pattern the engine lays over both eyes
@@ -276,10 +280,18 @@ float4 PSMain(VSOut input) : SV_Target {
     d.x += hudShiftU;
 
     // Chromatic aberration: R, G and B come from three different taps.
-    float2 ao = kAberr * c2;
-    float4 A = g_hud.SampleLevel(g_linear, d + ao, 0.0);
-    float4 B = g_hud.SampleLevel(g_linear, d,      0.0);
-    float4 C = g_hud.SampleLevel(g_linear, d - ao, 0.0);
+    // Optimization: if kAberr==0, all three taps are identical; take one.
+    float4 A, B, C;
+    if (kAberr == 0.0) {
+        B = g_hud.SampleLevel(g_linear, d, 0.0);
+        A = B;
+        C = B;
+    } else {
+        float2 ao = kAberr * c2;
+        A = g_hud.SampleLevel(g_linear, d + ao, 0.0);
+        B = g_hud.SampleLevel(g_linear, d,      0.0);
+        C = g_hud.SampleLevel(g_linear, d - ao, 0.0);
+    }
 
     float4 G1 = g_hud.SampleLevel(g_linear, d + kOff1 * c2, 1.0);
     float4 G2 = g_hud.SampleLevel(g_linear, d + kOff2 * c2, 2.0);

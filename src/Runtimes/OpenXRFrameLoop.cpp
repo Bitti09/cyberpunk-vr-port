@@ -2837,14 +2837,15 @@ DWORD OpenXRManager::FrameThreadMain() {
                                 constexpr auto valid=XR_SPACE_LOCATION_ORIENTATION_VALID_BIT|XR_SPACE_LOCATION_POSITION_VALID_BIT;
                                 hudTracked=XR_SUCCEEDED(xrLocateSpace(m_viewSpace,m_localSpace,
                                     frameState.predictedDisplayTime,&hudHead)) && (hudHead.locationFlags&valid)==valid;
-                                XrViewLocateInfo locate{XR_TYPE_VIEW_LOCATE_INFO};
-                                locate.viewConfigurationType=XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
-                                locate.displayTime=frameState.predictedDisplayTime;locate.space=m_localSpace;
-                                XrViewState state{XR_TYPE_VIEW_STATE};uint32_t count=0;
-                                hudEyes=hudTracked && XR_SUCCEEDED(xrLocateViews(m_session,&locate,&state,2,&count,hudViews)) &&
-                                    count==2 && (state.viewStateFlags&XR_VIEW_STATE_POSITION_VALID_BIT);
-                                if(hudEyes) for(int i=0;i<2;++i) eyeOffsets[i]={hudViews[i].pose.position.x-hudHead.pose.position.x,
-                                    hudViews[i].pose.position.y-hudHead.pose.position.y,hudViews[i].pose.position.z-hudHead.pose.position.z};
+                                // Reuse m_views (already located at frameState.predictedDisplayTime above)
+                                // instead of calling xrLocateViews again for the same displayTime.
+                                // This saves one OpenXR API call per frame.
+                                if(hudTracked && m_views.size()>=2) {
+                                    std::lock_guard<std::mutex> viewLock(m_viewMutex);
+                                    hudEyes=true;
+                                    for(int i=0;i<2;++i) eyeOffsets[i]={m_views[i].pose.position.x-hudHead.pose.position.x,
+                                        m_views[i].pose.position.y-hudHead.pose.position.y,m_views[i].pose.position.z-hudHead.pose.position.z};
+                                }
                             }
                             float hudBodyYaw=0;
                             { std::lock_guard lock(m_renderPoseMutex);

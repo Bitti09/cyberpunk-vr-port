@@ -18,6 +18,15 @@ extern "C" float CyberpunkVR_HudEngineCurvature[2];
 // every corner element -- the health bar sloping down toward the middle, the weapon slots up, 5 to 9 degrees, alike in
 // both eyes: a crooked HUD (2026-11-14). 1 bends the panel with the engine's values again.
 extern "C" __declspec(dllexport) int32_t CyberpunkVR_HudPanelCurve = 0;
+// 1 = skip Capture when the source Snapshot has been rendered since the last game tick (same pointer
+// + same generation: content unchanged, so re-running sprites + 9 pyramid passes + composite is
+// wasted work). 0 = always re-render (the previous behavior). Live switch for A/B; the scanline
+// flicker advances at game-tick rate under the skip instead of at display rate, which is fine for
+// the slow sinusoid.
+extern "C" __declspec(dllexport) std::atomic<int32_t> CyberpunkVR_HudSkipUnchanged{1};
+// Counter: how many Captures were skipped since launch. Read with a debugger or in the HUD's
+// diagnostic overlay. Useful to verify the skip is actually firing.
+extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_HudSkips{0};
 extern "C" ID3D12Resource* CyberpunkVR_GetHudExposureBuffer();
 namespace cvr::hud {
 using Microsoft::WRL::ComPtr;
@@ -43,6 +52,13 @@ struct Pipeline {
     ComPtr<ID3D12Fence> fence;
     ComPtr<ID3D12Device> deviceOwner;
     uint64_t submitted=0;
+    // Unchanged-snapshot skip (CyberpunkVR_HudSkipUnchanged): track the last-rendered source
+    // identity and generation so a repeat Capture with the same Snapshot object (i.e. between
+    // game ticks) can reuse the previous frame's canvas. The scanline flicker animation
+    // (frameConst[0].x) then advances at game-tick rate instead of display rate; the flicker
+    // is a slow sinusoid, so the difference is imperceptible.
+    std::shared_ptr<Snapshot> lastRenderedSource;
+    uint64_t lastRenderedGeneration=0;
 };
 std::array<Pipeline,ChannelCount> pipelines;
 
@@ -137,7 +153,8 @@ void DropConsumer(Channel channel) {
 
 void Capture(ID3D12Device* device, ID3D12CommandQueue* queue,Channel channel) {
     if(channel==Channel::Main)cvr::optics::probe::Capture(device,queue);
-    auto& [snapshotMutex,renderMutex,snapshot,latest,consumerStamp,slots,fence,deviceOwner,submitted]=pipelines[Index(channel)];
+    auto& pipeline=pipelines[Index(channel)];
+    auto& [snapshotMutex,renderMutex,snapshot,latest,consumerStamp,slots,fence,deviceOwner,submitted]=pipeline;
     if (!device || !queue) return;
     std::shared_ptr<Snapshot> source;
     { std::lock_guard lock(snapshotMutex); source=snapshot; }
@@ -152,6 +169,16 @@ void Capture(ID3D12Device* device, ID3D12CommandQueue* queue,Channel channel) {
         return;
     }
     if (!source || source->sprites.empty() || GetTickCount64()-source->stamp > 300) { latest.reset(); return; }
+    // Same Snapshot pointer AND same generation as the last render we did for this channel: the
+    // content is identical, so skip the full sprite+pyramid+composite chain and leave latest
+    // pointing at the previous frame. Between game ticks (~43 Hz) and XR Presents (90 Hz) about
+    // half the Captures fall here; this saves roughly half the HUD GPU cost.
+    if (CyberpunkVR_HudSkipUnchanged.load(std::memory_order_relaxed) &&
+        latest && latest->stamp && source.get() == pipeline.lastRenderedSource.get() &&
+        source->generation == pipeline.lastRenderedGeneration) {
+        CyberpunkVR_HudSkips.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
     if (!fence) {
         if (FAILED(device->CreateFence(0,D3D12_FENCE_FLAG_NONE,IID_PPV_ARGS(&fence)))) return;
         deviceOwner=device;
@@ -239,7 +266,11 @@ void Capture(ID3D12Device* device, ID3D12CommandQueue* queue,Channel channel) {
         slot.frame->lootVisible=source->lootVisible;
         slot.frame->hudRect=source->hudRect;
         slot.frame->windshieldMap=source->windshieldMap;slot.frame->windshieldSplit=source->windshieldSplit;
-        if (ok) latest=slot.frame; else SetConsumerReady(false,channel);
+        if (ok) {
+            latest=slot.frame;
+            pipeline.lastRenderedSource=source;
+            pipeline.lastRenderedGeneration=source->generation;
+        } else SetConsumerReady(false,channel);
         return;
     }
 }

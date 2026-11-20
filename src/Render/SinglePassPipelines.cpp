@@ -397,9 +397,19 @@ void RootCreated(ID3D12Device* device,ID3D12RootSignature* root,const void* blob
 
 ID3D12RootSignature* TwinRoot(ID3D12RootSignature* root) {
     if(!root || !rootCount.load(std::memory_order_acquire))return nullptr;
+    // Per-thread one-entry cache: the engine's bound root changes at most a few times per list
+    // (SetRootSignature calls), so the same root dominates across ~2,200 draws per list. Without
+    // this cache TwinRoot takes rootMutex + unordered_map::find per draw, which the draw-hook
+    // audit measured as ~4,400 lock+hash ops per frame across the recording workers.
+    thread_local ID3D12RootSignature* t_root{};
+    thread_local ID3D12RootSignature* t_twin{};
+    if (t_root == root) return t_twin;
     std::lock_guard lock(rootMutex);
     const auto it=roots.find(root);
-    return it==roots.end()?nullptr:it->second.twin.Get();
+    const auto twin = it==roots.end()?nullptr:it->second.twin.Get();
+    t_root = root;
+    t_twin = twin;
+    return twin;
 }
 bool Available() {return compilerState.load(std::memory_order_acquire)!=2 && rootCount.load(std::memory_order_acquire)!=0;}
 

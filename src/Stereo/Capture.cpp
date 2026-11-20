@@ -1405,6 +1405,12 @@ void final_frame_copy_now() {
 // [4] split-barrier begins, [5] split-barrier ends, [6] transitions of all subresources, [7] time inside the
 // runtime and driver's ResourceBarrier (100 ns units). The port's own (internal) barriers are not counted.
 extern "C" __declspec(dllexport) std::atomic<uint64_t> CyberpunkVR_BarrierCounts[8]{};
+// Barrier-time sampling rate: 1 = sample every ResourceBarrier (the previous behavior), N = sample
+// one in N. Two QPC reads per invocation cost ~1 us; at ~600-2,500 barriers/frame that's 0.6-2.5
+// ms of CPU per frame (measured in the draw-hook audit). Sampling 1-in-16 keeps the statistics
+// representative while removing ~94% of that cost. 0 disables timing entirely.
+extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_BarrierTimeSampleRate{16};
+static std::atomic<uint64_t> CyberpunkVR_BarrierSampleCounter{0};
 static uint64_t BarrierClock(){LARGE_INTEGER t;QueryPerformanceCounter(&t);return static_cast<uint64_t>(t.QuadPart);}
 static void CountBarrierTime(uint64_t start){
     static const uint64_t frequency=[]{LARGE_INTEGER f;QueryPerformanceFrequency(&f);return static_cast<uint64_t>(f.QuadPart);}();
@@ -1445,8 +1451,12 @@ void STDMETHODCALLTYPE hk_ResourceBarrier(ID3D12GraphicsCommandList* self,
     const auto hiddenBase=reinterpret_cast<uintptr_t>(g_exe_base);
     const uint32_t hiddenNode=hiddenBase && t_current_node_work>hiddenBase?uint32_t(t_current_node_work-hiddenBase):0;
     if(e && e->cleardsv_original)cvr::hidden_area::BeforeBarriers(self,count,barriers,t_view_side,hiddenNode,e->cleardsv_original);
-    if (orig){const auto barrierStart=BarrierClock();orig(self, count, barriers);
-        if(!cvr::stereo::probe::internalCommands)CountBarrierTime(barrierStart);
+    if (orig){
+        const uint32_t sampleRate=CyberpunkVR_BarrierTimeSampleRate.load(std::memory_order_relaxed);
+        const bool sample=sampleRate>0 && (++CyberpunkVR_BarrierSampleCounter%sampleRate==0);
+        const uint64_t barrierStart=sample?BarrierClock():0;
+        orig(self, count, barriers);
+        if(!cvr::stereo::probe::internalCommands && sample)CountBarrierTime(barrierStart);
         if(e->cleardsv_original)cvr::hidden_area::AfterBarriers(self,count,barriers,t_view_side,hiddenNode,e->cleardsv_original);cvr::stereo::target_handoff::Barriers(self,count,barriers);
         cvr::stereo::target_access::Barriers(self,count,barriers);}
     cvr::stereo::buffer_read::Barriers(self,count,barriers);

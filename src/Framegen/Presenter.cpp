@@ -9,8 +9,11 @@ extern void Log(const char*,...);
 namespace cvr::framegen {
 namespace {
 bool ExternalBridgeLoaded() {
-    static uint64_t nextCheck=0;static bool loaded=false;
-    const auto now=GetTickCount64();if(now<nextCheck)return loaded;nextCheck=now+2000;loaded=false;
+    // Check once per process: an external bridge module cannot appear mid-session without a restart.
+    // The previous implementation re-checked every 2 seconds, which was unnecessary overhead.
+    static std::optional<bool> cached;
+    if(cached.has_value()) return *cached;
+    bool loaded=false;
     HMODULE modules[1024]{};DWORD bytes{};
     if(EnumProcessModules(GetCurrentProcess(),modules,sizeof(modules),&bytes)) {
         const auto count=std::min<size_t>(bytes/sizeof(HMODULE),std::size(modules));
@@ -19,6 +22,7 @@ bool ExternalBridgeLoaded() {
             if(_wcsnicmp(name,L"XR_APILAYER_XRFrameBridge",23)==0) {loaded=true;break;}
         }
     }
+    cached=loaded;
     return loaded;
 }
 XrPosef Middle(const XrPosef& a,const XrPosef& b) {
