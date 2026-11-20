@@ -177,11 +177,16 @@ float4 PSMain(VSOut input) : SV_Target {
             const float brightest=max(texel.r,max(texel.g,texel.b));
             const float alpha=smoothstep(0.02,0.18,brightest)*0.97;
             const float2 px=2.0/float2(targetW,targetH);
+            // Optimization: the rim is only used below the split line (uv.y > split + px.y).
+            // Skip the 8-tap loop when we're above the split, which is the common case for
+            // the empty background area.
             float rim=0.0;
-            [unroll] for(int i=0;i<8;++i) {
-                const float a=6.2831853*float(i)/8.0;
-                const float3 t=g_hud.SampleLevel(g_linear,uv+float2(cos(a),sin(a))*px,0.0).rgb;
-                rim=max(rim,smoothstep(0.02,0.18,max(t.r,max(t.g,t.b))));
+            if (uv.y > split + px.y) {
+                [unroll] for(int i=0;i<8;++i) {
+                    const float a=6.2831853*float(i)/8.0;
+                    const float3 t=g_hud.SampleLevel(g_linear,uv+float2(cos(a),sin(a))*px,0.0).rgb;
+                    rim=max(rim,smoothstep(0.02,0.18,max(t.r,max(t.g,t.b))));
+                }
             }
             const float backing=0.6*rim*step(split+px.y,uv.y);
             return float4(texel.rgb/max(brightest,0.001)*alpha*panelBrightness,alpha+backing*(1.0-alpha));
@@ -293,9 +298,18 @@ float4 PSMain(VSOut input) : SV_Target {
         C = g_hud.SampleLevel(g_linear, d - ao, 0.0);
     }
 
-    float4 G1 = g_hud.SampleLevel(g_linear, d + kOff1 * c2, 1.0);
-    float4 G2 = g_hud.SampleLevel(g_linear, d + kOff2 * c2, 2.0);
-    float4 G4 = g_hud.SampleLevel(g_linear, d + kOff4 * c2, 4.0);
+    // Glow: 3 taps at mips 1/2/4, weighted. Optimization: skip the taps when all weights are 0
+    // (noGlow debug mode or user set glowWeight1/2/4 to 0).
+    float4 G1, G2, G4;
+    if (kW1 == 0.0 && kW2 == 0.0 && kW4 == 0.0) {
+        G1 = 0.0;
+        G2 = 0.0;
+        G4 = 0.0;
+    } else {
+        G1 = g_hud.SampleLevel(g_linear, d + kOff1 * c2, 1.0);
+        G2 = g_hud.SampleLevel(g_linear, d + kOff2 * c2, 2.0);
+        G4 = g_hud.SampleLevel(g_linear, d + kOff4 * c2, 4.0);
+    }
 
     float cover = 1.0 - (A.w + B.w + C.w) * 0.3333333333;   // _2175
     float3 glow = saturate(f * (kW2 * G2.rgb + kW1 * G1.rgb + kW4 * G4.rgb)) * cover;

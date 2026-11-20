@@ -2364,16 +2364,18 @@ DWORD OpenXRManager::FrameThreadMain() {
                     const bool curtainShut = cvr::lobby::Curtain() >= 1.0f;
                     const float menuBlink = monoDark ? 1.0f : cvr::vrmenu::BlinkClosure();
                     bool useDepthLayer = false;
-                    std::vector<bool> acquiredEyes(viewCountOutput, false);
-                    std::vector<bool> acquiredDepthEyes(viewCountOutput, false);
-                    std::vector<XrCompositionLayerProjectionView> projectionViews(viewCountOutput);
-                    std::vector<XrCompositionLayerDepthInfoKHR> depthInfos;
-                    for (uint32_t i = 0; i < viewCountOutput; ++i) {
+                    // Optimization: fixed-size arrays instead of heap-allocated vectors.
+                    // viewCountOutput is typically 2 for stereo, so we size for the maximum expected (4).
+                    constexpr uint32_t kMaxViews = 4;
+                    bool acquiredEyes[kMaxViews]{};
+                    bool acquiredDepthEyes[kMaxViews]{};
+                    XrCompositionLayerProjectionView projectionViews[kMaxViews];
+                    for (uint32_t i = 0; i < viewCountOutput && i < kMaxViews; ++i) {
                         projectionViews[i] = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
                     }
+                    XrCompositionLayerDepthInfoKHR depthInfos[kMaxViews];
                     if (useDepthLayer) {
-                        depthInfos.resize(viewCountOutput);
-                        for (uint32_t i = 0; i < viewCountOutput; ++i) {
+                        for (uint32_t i = 0; i < viewCountOutput && i < kMaxViews; ++i) {
                             depthInfos[i] = {XR_TYPE_COMPOSITION_LAYER_DEPTH_INFO_KHR};
                         }
                     }

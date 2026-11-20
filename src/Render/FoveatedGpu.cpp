@@ -85,6 +85,22 @@ void Barrier(ID3D12GraphicsCommandList* list,ID3D12Resource* resource,D3D12_RESO
     D3D12_RESOURCE_BARRIER b{}; b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     b.Transition={resource,D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,before,after};list->ResourceBarrier(1,&b);
 }
+// Optimization: batch multiple barriers into a single ResourceBarrier call. Reduces driver overhead.
+void Barriers(ID3D12GraphicsCommandList* list,std::initializer_list<ID3D12Resource*> resources,D3D12_RESOURCE_STATES before,D3D12_RESOURCE_STATES after) {
+    if(resources.size()==0)return;
+    D3D12_RESOURCE_BARRIER barriers[8];  // Max 8 in a batch (adjust if needed)
+    uint32_t count=0;
+    for(auto* resource:resources) {
+        if(count>=8) {  // Flush if we exceed the batch size
+            list->ResourceBarrier(count,barriers);
+            count=0;
+        }
+        barriers[count].Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barriers[count].Transition={resource,D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,before,after};
+        ++count;
+    }
+    if(count>0)list->ResourceBarrier(count,barriers);
+}
 bool Texture(ID3D12Device* device,unsigned w,unsigned h,DXGI_FORMAT format,ComPtr<ID3D12Resource>& result) {
     D3D12_RESOURCE_DESC d{};d.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;d.Width=w;d.Height=h;
     d.DepthOrArraySize=1;d.MipLevels=1;d.SampleDesc.Count=1;d.Format=format;d.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
@@ -164,14 +180,14 @@ bool FoveatedGpu::Prepare(ID3D12GraphicsCommandList* list,const Source& s,bool c
     list->SetComputeRootDescriptorTable(0,gpu);gpu.ptr+=uint64_t(central?5:9)*stride;
     list->SetComputeRootDescriptorTable(1,gpu);list->SetComputeRoot32BitConstants(2,sizeof(data)/4,&data,0);
     list->Dispatch((r.inputW+7)/8,(r.inputH+7)/8,1);
-    for(auto* texture:{pass.color.Get(),pass.depth.Get(),pass.motion.Get()})
-        Barrier(list,texture,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    // Optimization: batch the 3 barriers into one call.
+    Barriers(list,{pass.color.Get(),pass.depth.Get(),pass.motion.Get()},D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     return true;
 }
 bool FoveatedGpu::Composite(ID3D12GraphicsCommandList* list,const Source& s,bool boundary) {
     auto* binding=Bind(s);if(!binding || !cvr::gpu::KeepCommandResources(list,{binding->heap.Get(),s.output,root.Get(),composite.Get(),center.output.Get(),periphery.output.Get()}))return false;
-    for(auto* texture:{center.output.Get(),periphery.output.Get()})
-        Barrier(list,texture,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    // Optimization: batch the 2 output barriers into one call.
+    Barriers(list,{center.output.Get(),periphery.output.Get()},D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     Constants data{};data.dimensions[0]=s.renderW;data.dimensions[1]=s.renderH;
     data.dimensions[2]=s.outputW;data.dimensions[3]=s.outputH;data.flags[0]=boundary;
     data.rect[0]=float(center.region.sourceX);data.rect[1]=float(center.region.sourceY);
@@ -183,11 +199,9 @@ bool FoveatedGpu::Composite(ID3D12GraphicsCommandList* list,const Source& s,bool
     gpu.ptr+=uint64_t(5)*stride;list->SetComputeRootDescriptorTable(1,gpu);
     list->SetComputeRoot32BitConstants(2,sizeof(data)/4,&data,0);list->Dispatch((s.outputW+7)/8,(s.outputH+7)/8,1);
     D3D12_RESOURCE_BARRIER barrier{};barrier.Type=D3D12_RESOURCE_BARRIER_TYPE_UAV;barrier.UAV.pResource=s.output;list->ResourceBarrier(1,&barrier);
-    for(auto* pass:{&center,&periphery}) {
-        Barrier(list,pass->output.Get(),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        for(auto* texture:{pass->color.Get(),pass->depth.Get(),pass->motion.Get()})
-            Barrier(list,texture,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    }
+    // Optimization: batch the 8 restore barriers (2 passes * (output + color/depth/motion)) into two calls.
+    Barriers(list,{center.output.Get(),center.color.Get(),center.depth.Get(),center.motion.Get()},D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    Barriers(list,{periphery.output.Get(),periphery.color.Get(),periphery.depth.Get(),periphery.motion.Get()},D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     return true;
 }
 }

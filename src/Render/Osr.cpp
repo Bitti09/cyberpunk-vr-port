@@ -63,10 +63,16 @@ void Clear(uint3 id : SV_DispatchThreadID) {
     if (id.x >= sizes.x || id.y >= sizes.y) return;
     StereoT[id.xy] = 0;
     HistT[id.xy] = 0;
-    float nearest = 0;
-    [unroll] for (int k = 0; k < 16; ++k)
-        nearest = max(nearest, SrcDepth[clamp(int2(id.xy) + int2((k & 3) - 1, (k >> 2) - 1), int2(0, 0), int2(sizes.xy) - 1)]);
-    NearD[id.xy] = nearest;
+    // Optimization: NearD is only consumed in Trace when edge.x > 0. Skip the 16-tap max computation
+    // when edge detection is off (edge.x == 0), saving 16 texture reads per depth texel.
+    if (edge.x > 0) {
+        float nearest = 0;
+        [unroll] for (int k = 0; k < 16; ++k)
+            nearest = max(nearest, SrcDepth[clamp(int2(id.xy) + int2((k & 3) - 1, (k >> 2) - 1), int2(0, 0), int2(sizes.xy) - 1)]);
+        NearD[id.xy] = nearest;
+    } else {
+        NearD[id.xy] = 0;
+    }
 }
 
 // Every depth texel of the drawn eye (pass 0) or of the made eye's previous frame (pass 1) forward into the made
