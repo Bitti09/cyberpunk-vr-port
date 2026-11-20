@@ -6,9 +6,9 @@
 
 namespace cvr::foveated {
 struct Settings {
-    int mode = 0; // Off, Quality, Balanced, Performance
-    float widthPercent = 70.0f;
-    float heightPercent = 65.0f;
+    int mode = 3; // Off, Quality, Balanced, Performance (default: Performance for aggressive foveation)
+    float widthPercent = 60.0f;  // Reduced from 70% for more aggressive foveation
+    float heightPercent = 55.0f; // Reduced from 65% for more aggressive foveation
     bool showBoundary = false;
     float offsetXPercent = 0.0f;
     float offsetYPercent = -10.0f;

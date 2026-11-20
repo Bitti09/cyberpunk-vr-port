@@ -46,6 +46,8 @@
 extern void Log(const char*,...);
 // 1 = DLSS per eye under engine stereo (default); 0 = the engine's one evaluate over both eyes. Live.
 extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_EngineStereoDlssPerEye{1};
+// DLSS mode override: 0 = auto (derived from scale), 1 = DLAA, 2 = MaxQuality, 3 = Balanced, 4 = MaxPerformance, 5 = UltraPerformance. Live.
+extern "C" __declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_DlssModeOverride{0};
 // [0] evaluates split per eye, [1] passed through (another feature / mode off), [2] no tags for the viewport,
 // [3] no constants for the viewport and frame, [4] tags without a colour input and output of even width,
 // [5] eye options set, [6] an eye's evaluate failed, [7] the engine's options calls seen.
@@ -548,9 +550,24 @@ bool RightOutputReady(const sl::Extent& out, void* commandList) {
 sl::DLSSOptions Derived(const sl::Extent& in, const sl::Extent& out, bool exposureTagged) {
     sl::DLSSOptions o{};
     const double scale = double(in.width) / double(out.width);
-    o.mode = scale > 0.95 ? sl::DLSSMode::eDLAA : scale > 0.62 ? sl::DLSSMode::eMaxQuality :
-             scale > 0.54 ? sl::DLSSMode::eBalanced : scale > 0.42 ? sl::DLSSMode::eMaxPerformance :
-             sl::DLSSMode::eUltraPerformance;
+    // Check for mode override first
+    const uint32_t override = CyberpunkVR_DlssModeOverride.load(std::memory_order_relaxed);
+    if (override != 0) {
+        // Override mode: 1=DLAA, 2=MaxQuality, 3=Balanced, 4=MaxPerformance, 5=UltraPerformance
+        switch (override) {
+            case 1: o.mode = sl::DLSSMode::eDLAA; break;
+            case 2: o.mode = sl::DLSSMode::eMaxQuality; break;
+            case 3: o.mode = sl::DLSSMode::eBalanced; break;
+            case 4: o.mode = sl::DLSSMode::eMaxPerformance; break;
+            case 5: o.mode = sl::DLSSMode::eUltraPerformance; break;
+            default: o.mode = sl::DLSSMode::eBalanced; break;
+        }
+    } else {
+        // Auto mode based on scale
+        o.mode = scale > 0.95 ? sl::DLSSMode::eDLAA : scale > 0.62 ? sl::DLSSMode::eMaxQuality :
+                 scale > 0.54 ? sl::DLSSMode::eBalanced : scale > 0.42 ? sl::DLSSMode::eMaxPerformance :
+                 sl::DLSSMode::eUltraPerformance;
+    }
     o.colorBuffersHDR = sl::Boolean::eTrue;
     o.useAutoExposure = exposureTagged ? sl::Boolean::eFalse : sl::Boolean::eTrue;
     return o;

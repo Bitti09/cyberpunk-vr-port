@@ -74,6 +74,11 @@ bool ParseSetting(const char* line, Settings& value) {
         return true;
     }
     if (sscanf_s(line, "xr_foveated_boundary = %d", &number) == 1) { value.showBoundary = number != 0; return true; }
+    if (sscanf_s(line, "xr_dlss_mode_override = %d", &number) == 1) { 
+        extern std::atomic<uint32_t> CyberpunkVR_DlssModeOverride;
+        CyberpunkVR_DlssModeOverride.store(std::clamp(number, 0, 5), std::memory_order_relaxed);
+        return true;
+    }
     return false;
 }
 void WriteSettings(FILE* file, Settings value) {

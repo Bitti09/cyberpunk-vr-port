@@ -33,7 +33,7 @@ struct BarrierRecord { uint32_t node; int32_t side; uint32_t before, after, subr
 }
 extern "C" {
 // Effective settings, also writable by live tests (an ini edit overwrites them again).
-__declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_HiddenAreaEnabled{0};
+__declspec(dllexport) std::atomic<uint32_t> CyberpunkVR_HiddenAreaEnabled{1};
 __declspec(dllexport) std::atomic<float> CyberpunkVR_HiddenAreaRadius{115.0f};
 // Only clears inside this render-graph node (work RVA) are masked; 0 = any node. Default:
 // SetRenderTargetsGBuffer. The hologram, planar-reflection and water depths are square as well.
