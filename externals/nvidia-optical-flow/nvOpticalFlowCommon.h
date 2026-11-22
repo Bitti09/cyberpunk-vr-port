@@ -59,7 +59,7 @@ typedef unsigned short      uint16_t;
 #define MIN_ERROR_STRING_SIZE 80
 
 #if defined(__cplusplus)
-extern "C"
+extern "C" 
 {
 #endif /* __cplusplus */
 
@@ -152,16 +152,16 @@ typedef enum _NV_OF_BOOL
 */
 typedef enum _NV_OF_CAPS
 {
-    NV_OF_CAPS_SUPPORTED_OUTPUT_GRID_SIZES,      /**< Indicates supported values of ::NV_OF_OUTPUT_VECTOR_GRID_SIZE,
+    NV_OF_CAPS_SUPPORTED_OUTPUT_GRID_SIZES,      /**< Indicates supported values of ::NV_OF_OUTPUT_VECTOR_GRID_SIZE, 
                                                     ::NV_OF_INIT_PARAMS::outGridSize should be set with a supported output gridsize. */
-    NV_OF_CAPS_SUPPORTED_HINT_GRID_SIZES,        /**< Indicates supported values of ::NV_OF_HINT_VECTOR_GRID_SIZE,
+    NV_OF_CAPS_SUPPORTED_HINT_GRID_SIZES,        /**< Indicates supported values of ::NV_OF_HINT_VECTOR_GRID_SIZE, 
                                                     ::NV_OF_INIT_PARAMS::hintGridSize should be set with a supported hint gridsize. */
-    NV_OF_CAPS_SUPPORT_HINT_WITH_OF_MODE,        /**< Indicates external hint support for ::NV_OF_MODE_OPTICALFLOW mode.
+    NV_OF_CAPS_SUPPORT_HINT_WITH_OF_MODE,        /**< Indicates external hint support for ::NV_OF_MODE_OPTICALFLOW mode. 
                                                     0: External hint not supported for ::NV_OF_MODE_OPTICALFLOW mode.
-                                                    1: External hint is supported for ::NV_OF_MODE_OPTICALFLOW mode. */
-    NV_OF_CAPS_SUPPORT_HINT_WITH_ST_MODE,        /**< Indicates external hint support for ::NV_OF_MODE_STEREODISPARITY mode.
+                                                    1: External hint is supported for ::NV_OF_MODE_OPTICALFLOW mode. */ 
+    NV_OF_CAPS_SUPPORT_HINT_WITH_ST_MODE,        /**< Indicates external hint support for ::NV_OF_MODE_STEREODISPARITY mode. 
                                                     0: External hint not supported for ::NV_OF_MODE_STEREODISPARITY mode.
-                                                    1: External hint is supported for ::NV_OF_MODE_STEREODISPARITY mode. */
+                                                    1: External hint is supported for ::NV_OF_MODE_STEREODISPARITY mode. */ 
     NV_OF_CAPS_WIDTH_MIN,                        /**< Minimum input width supported. */
     NV_OF_CAPS_HEIGHT_MIN,                       /**< Minimum input height supported. */
     NV_OF_CAPS_WIDTH_MAX,                        /**< Maximum input width supported. */
@@ -258,9 +258,9 @@ typedef enum _NV_OF_BUFFER_FORMAT
     NV_OF_BUFFER_FORMAT_ABGR8,                    /**< Input buffer format with 8 bit packed A8B8G8R8 */
     NV_OF_BUFFER_FORMAT_SHORT,                    /**< Output or hint buffer format for stereo disparity */
     NV_OF_BUFFER_FORMAT_SHORT2,                   /**< Output or hint buffer format for optical flow vector */
-    NV_OF_BUFFER_FORMAT_UINT,                     /**< Legacy 32-bit Cost buffer format for optical flow vector / stereo disparity.
+    NV_OF_BUFFER_FORMAT_UINT,                     /**< Legacy 32-bit Cost buffer format for optical flow vector / stereo disparity. 
                                                        This cost buffer format is not performance efficient and results in additional GPU usage.
-                                                       Hence users are strongly recommended to use the 8-bit cost buffer format.
+                                                       Hence users are strongly recommended to use the 8-bit cost buffer format. 
                                                        Legacy 32-bit cost buffer format is also planned to be deprecated in future. */
     NV_OF_BUFFER_FORMAT_UINT8,                    /**< 8-bit Cost buffer format for optical flow vector / stereo disparity. */
     NV_OF_BUFFER_FORMAT_MAX
@@ -341,7 +341,7 @@ typedef struct _NV_OF_INIT_PARAMS
                                                                                  Cost represents confidence of the flow vector.  Higher cost value implies the flow vector
                                                                                  to be less accurate and vice-versa. */
     NvOFPrivDataHandle              hPrivData;                        /**< [in]: Optical flow private data. It is reserved field and should be set to NULL. */
-    NV_OF_STEREO_DISPARITY_RANGE    disparityRange;                   /**< [in]: Specifies maximum stereo disparity range.
+    NV_OF_STEREO_DISPARITY_RANGE    disparityRange;                   /**< [in]: Specifies maximum stereo disparity range. 
                                                                                  Set to NV_OF_STEREO_DISPARITY_RANGE_UNDEFINED for Turing GPUs. */
     NV_OF_BOOL                      enableRoi;                        /**< [in]: Set to 1 to enable estimation of optical flow/stereo for roi. */
     NV_OF_PRED_DIRECTION            predDirection;                    /**< [in]: Prediction direction. When ::NV_OF_INIT_PARAMS::mode is ::NV_OF_MODE_OPTICALFLOW,
@@ -402,9 +402,9 @@ typedef struct _NV_OF_EXECUTE_INPUT_PARAMS
     NvOFGPUBufferHandle             referenceFrame;                  /**< [in]: If ::NV_OF_INIT_PARAMS::mode is ::NV_OF_MODE_OPTICALFLOW, this specifies the handle to the buffer containing the reference frame.
                                                                                 If ::NV_OF_INIT_PARAMS::mode is ::NV_OF_MODE_STEREODISPARITY, this specifies the handle to the buffer containing the rectified right view. */
     NvOFGPUBufferHandle             externalHints;                   /**< [in]: It is an optional input, This field will be considered if client had set ::NV_OF_INIT_PARAMS::enableExternalHint flag.
-                                                                                Client can pass some available predictors as hints.
+                                                                                Client can pass some available predictors as hints. 
                                                                                 Optical flow driver will search around those hints to optimize flow vectors quality.
-                                                                                Expected hint buffer format is ::NV_OF_FLOW_VECTOR, ::NV_OF_STEREO_DISPARITY
+                                                                                Expected hint buffer format is ::NV_OF_FLOW_VECTOR, ::NV_OF_STEREO_DISPARITY 
                                                                                 for ::NV_OF_MODE_OPTICALFLOW, ::NV_OF_MODE_STEREODISPARITY modes respectively for
                                                                                 each ::NV_OF_INIT_PARAMS::hintGridSize in a frame. */
     NV_OF_BOOL                      disableTemporalHints;            /**< [in]: Temporal hints yield better accuracy flow vectors when running on successive frames of a continuous video (without major scene changes).
@@ -426,8 +426,8 @@ typedef struct _NV_OF_EXECUTE_OUTPUT_PARAMS
 {
     NvOFGPUBufferHandle            outputBuffer;                     /**< [in]: Specifies the pointer to optical flow or stereo disparity buffer handle.
                                                                                 ::outputBuffer will be populated with optical flow in
-                                                                                ::NV_OF_FLOW_VECTOR format or stereo disparity in
-                                                                                ::NV_OF_STEREO_DISPARITY format for each
+                                                                                ::NV_OF_FLOW_VECTOR format or stereo disparity in 
+                                                                                ::NV_OF_STEREO_DISPARITY format for each 
                                                                                 ::NV_OF_OUTPUT_VECTOR_GRID_SIZE::outGridSize in a frame.*/
     NvOFGPUBufferHandle            outputCostBuffer;                 /**< [in]: Specifies the pointer to output cost calculation buffer handle. */
     NvOFPrivDataHandle             hPrivData;                        /**< [in]: Optical flow private data handle. It is reserved field and should be set to NULL. */
@@ -474,7 +474,7 @@ typedef NV_OF_STATUS(NVOFAPI* PFNNVOFINIT) (NvOFHandle hOf, const NV_OF_INIT_PAR
 *
 * This is asynchronous function call which kicks off computation of optical flow or stereo disparity
 * between ::NV_OF_EXECUTE_INPUT_PARAMS::inputFrame and ::NV_OF_EXECUTE_INPUT_PARAMS::referenceFrame and returns
-* after submitting  execute paramaters to optical flow engine.
+* after submitting  execute paramaters to optical flow engine. 
 * ::NV_OF_EXECUTE_OUTPUT_PARAMS::outputBuffer will be populated with optical flow or stereo disparity
 * based on ::NV_OF_INIT_PARAMS:mode is NV_OF_MODE_OPTICALFLOW or NV_OF_MODE_STEREODISPARITY respectively.
 *

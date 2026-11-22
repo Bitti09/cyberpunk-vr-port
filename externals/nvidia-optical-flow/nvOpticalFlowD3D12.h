@@ -81,9 +81,9 @@ extern "C"
         NvOFGPUBufferHandle             referenceFrame;                  /**< [in]: If ::NV_OF_INIT_PARAMS::mode is ::NV_OF_MODE_OPTICALFLOW, this specifies the handle to the buffer containing the reference frame.
                                                                                     If ::NV_OF_INIT_PARAMS::mode is ::NV_OF_MODE_STEREODISPARITY, this specifies the handle to the buffer containing the rectified right view. */
         NvOFGPUBufferHandle             externalHints;                   /**< [in]: It is an optional input, This field will be considered if client had set ::NV_OF_INIT_PARAMS::enableExternalHint flag.
-                                                                                    Client can pass some available predictors as hints.
+                                                                                    Client can pass some available predictors as hints. 
                                                                                     Optical flow driver will search around those hints to optimize flow vectors quality.
-                                                                                    Expected hint buffer format is ::NV_OF_FLOW_VECTOR, ::NV_OF_STEREO_DISPARITY
+                                                                                    Expected hint buffer format is ::NV_OF_FLOW_VECTOR, ::NV_OF_STEREO_DISPARITY 
                                                                                     for ::NV_OF_MODE_OPTICALFLOW, ::NV_OF_MODE_STEREODISPARITY modes respectively for
                                                                                     each ::NV_OF_INIT_PARAMS::hintGridSize in a frame. */
         NV_OF_BOOL                      disableTemporalHints;            /**< [in]: Temporal hints yield better accuracy flow vectors when running on successive frames of a continuous video (without major scene changes).
@@ -110,8 +110,8 @@ extern "C"
     {
         NvOFGPUBufferHandle             outputBuffer;                     /**< [in]: Specifies the pointer to optical flow or stereo disparity buffer handle.
                                                                                     ::outputBuffer will be populated with optical flow in
-                                                                                    ::NV_OF_FLOW_VECTOR format or stereo disparity in
-                                                                                    ::NV_OF_STEREO_DISPARITY format for each
+                                                                                    ::NV_OF_FLOW_VECTOR format or stereo disparity in 
+                                                                                    ::NV_OF_STEREO_DISPARITY format for each 
                                                                                     ::NV_OF_OUTPUT_VECTOR_GRID_SIZE::outGridSize in a frame.*/
         NvOFGPUBufferHandle             outputCostBuffer;                 /**< [in]: Specifies the pointer to output cost calculation buffer handle. */
         NvOFPrivDataHandle              hPrivData;                        /**< [in]: Optical flow private data handle. It is reserved field and should be set to NULL. */
@@ -153,7 +153,7 @@ extern "C"
     * \brief Populate the count of the DXGI_FORMATs supported.
     *
     * This function returns the count of the DXGI_FORMAT supported for the given NV_OF_BUFFER_USAGE
-    * and the NV_OF_MODE. Client can use this count to allocate a sufficiently large array for
+    * and the NV_OF_MODE. Client can use this count to allocate a sufficiently large array for 
     * querying the DXGI_FORMATS supported.
     *
     * \param [in] hOf
@@ -249,7 +249,7 @@ extern "C"
     *
     * This is asynchronous function call which kicks off computation of optical flow or stereo disparity
     * between ::NV_OF_EXECUTE_INPUT_PARAMS_D3D12::inputFrame and ::NV_OF_EXECUTE_INPUT_PARAMS_D3D12::referenceFrame and returns
-    * after submitting  execute paramaters to optical flow engine.
+    * after submitting  execute paramaters to optical flow engine. 
     * ::NV_OF_EXECUTE_OUTPUT_PARAMS_D3D12::outputBuffer will be populated with optical flow or stereo disparity
     * based on ::NV_OF_INIT_PARAMS:mode is NV_OF_MODE_OPTICALFLOW or NV_OF_MODE_STEREODISPARITY respectively.
     *

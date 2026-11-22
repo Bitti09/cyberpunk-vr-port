@@ -18,7 +18,7 @@
 * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 * SOFTWARE.
-*/
+*/ 
 
 #pragma once
 
@@ -101,7 +101,7 @@ SL_STRUCT_BEGIN(DLSSDOptions, StructType({ 0x0ad87504, 0x774e, 0x4bf3, { 0x96, 0
 SL_STRUCT_END()
 
 //! Returned by DLSSD plugin
-//!
+//! 
 //! {FBD0C637-A28F-41F2-BC91-B421FAEE8E1E}
 SL_STRUCT_BEGIN(DLSSDOptimalSettings, StructType({ 0xfbd0c637, 0xa28f, 0x41f2, { 0xbc, 0x91, 0xb4, 0x21, 0xfa, 0xee, 0x8e, 0x1e } }), kStructVersion1)
 //! Specifies render area width
@@ -123,7 +123,7 @@ SL_STRUCT_BEGIN(DLSSDOptimalSettings, StructType({ 0xfbd0c637, 0xa28f, 0x41f2, {
 SL_STRUCT_END()
 
 //! Returned by DLSSD plugin
-//!
+//! 
 //! {71873C14-F8CA-4767-9EAF-3B4393EA98FA}
 SL_STRUCT_BEGIN(DLSSDState, StructType({ 0x71873c14, 0xf8ca, 0x4767, { 0x9e, 0xaf, 0x3b, 0x43, 0x93, 0xea, 0x98, 0xfa } }), kStructVersion1)
 //! Specified the amount of memory expected to be used
@@ -168,7 +168,7 @@ using PFun_slDLSSDGetState = sl::Result(const sl::ViewportHandle & viewport, sl:
 using PFun_slDLSSDSetOptions = sl::Result(const sl::ViewportHandle& viewport, const sl::DLSSDOptions& options);
 
 //! HELPERS
-//!
+//! 
 inline sl::Result slDLSSDGetOptimalSettings(const sl::DLSSDOptions& options, sl::DLSSDOptimalSettings& settings)
 {
     SL_FEATURE_FUN_IMPORT_STATIC(sl::kFeatureDLSS_RR, slDLSSDGetOptimalSettings);

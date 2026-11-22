@@ -12,7 +12,7 @@ result; do not build what the engine's vectors cannot support.
 |---|---|
 | 0 FidelityFX | FidelityFX Frame Interpolation (SDK 1.1.4). `xr_framegen_flow_scale=0` runs it on the engine's vectors alone; 50/75/100 adds FidelityFX optical flow at that resolution |
 | 1 NVIDIA OFA + FidelityFX | NVIDIA optical flow (OFA) + FidelityFX Frame Interpolation; with flow 0 it is the FidelityFX one |
-| 2 NVIDIA DLSS-G | NVIDIA DLSS Frame Generation through NGX (DLSS SDK 310.9.1, the game's nvngx_dlssg.dll 310.1), no Streamline, no swapchain |
+| 2 NVIDIA DLSS-G | NVIDIA DLSS Frame Generation through NGX (DLSS SDK 310.9.16, the game's nvngx_dlssg.dll 310.1), no Streamline, no swapchain |
 
 New defaults (fresh settings only; an existing vrport.ini keeps its values): DLSS-G, optical flow off.
 DLSS-G falls back to FidelityFX where NGX reports frame generation unavailable (not RTX 40/50, old

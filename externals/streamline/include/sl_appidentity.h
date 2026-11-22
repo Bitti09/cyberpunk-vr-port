@@ -8,7 +8,7 @@ namespace sl
 {
 
 //! Engine types
-//!
+//! 
 enum class EngineType : uint32_t
 {
     eCustom,

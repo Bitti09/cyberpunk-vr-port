@@ -18,7 +18,7 @@
 * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 * SOFTWARE.
-*/
+*/ 
 
 #pragma once
 
@@ -90,7 +90,7 @@ namespace sl
 constexpr float INVALID_FLOAT = 3.40282346638528859811704183484516925440e38f;
 constexpr uint32_t INVALID_UINT = 0xffffffff;
 
-//! Normally host would work with no more than 2 frames at the same time but sl.reflex sometimes
+//! Normally host would work with no more than 2 frames at the same time but sl.reflex sometimes 
 //! needs to send markers for previous and next frame so the total number of in-flight frames can be higher
 constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 6;
 
@@ -148,8 +148,8 @@ struct Extent
     uint32_t height{};
 
     inline operator bool() const { return width != 0 && height != 0; }
-    inline bool operator==(const Extent& rhs) const
-    {
+    inline bool operator==(const Extent& rhs) const 
+    { 
         return top == rhs.top && left == rhs.left &&
         width == rhs.width && height == rhs.height;
     }
@@ -177,13 +177,13 @@ enum Boolean : char
 };
 
 //! Common constants, all parameters must be provided unless they are marked as optional
-//!
+//! 
 //! {DCD35AD7-4E4A-4BAD-A90C-E0C49EB23AFE}
 SL_STRUCT_BEGIN(Constants, StructType({ 0xdcd35ad7, 0x4e4a, 0x4bad, { 0xa9, 0xc, 0xe0, 0xc4, 0x9e, 0xb2, 0x3a, 0xfe } }), kStructVersion2)
     //! IMPORTANT: All matrices are row major (see float4x4 definition) and
     //! must NOT contain temporal AA jitter offset (if any). Any jitter offset
     //! should be provided as the additional parameter Constants::jitterOffset (see below)
-
+            
     //! Specifies matrix transformation from the camera view to the clip space.
     float4x4 cameraViewToClip;
     //! Specifies matrix transformation from the clip space to the camera view space.
@@ -197,7 +197,7 @@ SL_STRUCT_BEGIN(Constants, StructType({ 0xdcd35ad7, 0x4e4a, 0x4bad, { 0xa9, 0xc,
     //! Specifies matrix transformation from the previous clip to the current clip space.
     //! prevClipToClip = clipToPrevClip.inverse()
     float4x4 prevClipToClip;
-
+        
     //! Specifies pixel space jitter offset
     float2 jitterOffset;
     //! Specifies scale factors used to normalize motion vectors (so the values are in [-1,1] range)
@@ -212,7 +212,7 @@ SL_STRUCT_BEGIN(Constants, StructType({ 0xdcd35ad7, 0x4e4a, 0x4bad, { 0xa9, 0xc,
     float3 cameraRight;
     //! Specifies camera forward vector in world space.
     float3 cameraFwd;
-
+        
     //! Specifies camera near view plane distance.
     float cameraNear = INVALID_FLOAT;
     //! Specifies camera far view plane distance.
@@ -241,16 +241,16 @@ SL_STRUCT_BEGIN(Constants, StructType({ 0xdcd35ad7, 0x4e4a, 0x4bad, { 0xa9, 0xc,
     Boolean motionVectorsJittered = Boolean::eFalse;
 
     //! Version 2 members:
-    //!
+    //! 
     //! Optional heuristic that specifies the minimum depth difference between two objects in screen-space.
     //! The units of the value are in linear depth units.
     //! Linear depth is computed as:
-    //!     if depthInverted is false:  `lin_depth = 1 / (1 - depth)`
+    //!     if depthInverted is false:  `lin_depth = 1 / (1 - depth)` 
     //!     if depthInverted is true:   `lin_depth = 1 / depth`
-    //!
+    //! 
     //! Although unlikely to need to be modified, smaller thresholds are useful when depth units are
     //! unusually compressed into a small dynamic range near 1.
-    //!
+    //! 
     //! If not specified, the default value is 40.0f.
     float minRelativeLinearDepthObjectSeparation = 40.0f;
 

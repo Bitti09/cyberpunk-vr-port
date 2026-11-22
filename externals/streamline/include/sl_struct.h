@@ -18,7 +18,7 @@
 * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 * SOFTWARE.
-*/
+*/ 
 
 #pragma once
 
@@ -41,30 +41,30 @@ struct StructType
 };
 
 //! SL is using typed and versioned structures which can be chained or not.
-//!
+//! 
 //! --- OPTION 1 ---
-//!
+//! 
 //! New members must be added at the end and version needs to be increased:
-//!
+//! 
 //! SL_STRUCT_BEGIN(S1, GUID1, kStructVersion1)
 //!     A
 //!     B
 //!     C
 //! SL_STRUCT_END()
-//!
+//! 
 //! SL_STRUCT_BEGIN(S1, GUID1, kStructVersion2) // Note that version is bumped
 //!     // V1
 //!     A
 //!     B
 //!     C
-//!
+//! 
 //!     //! V2 - new members always go at the end!
 //!     D
 //!     E
 //! SL_STRUCT_END()
-//!
+//! 
 //! Here is one example on how to check for version and handle backwards compatibility:
-//!
+//! 
 //! void func(const S1* input)
 //! {
 //!     // Access A, B, C as needed
@@ -77,20 +77,20 @@ struct StructType
 
 
 //! --- OPTION 2 ---
-//!
+//! 
 //! New members are optional and added to a new struct which is then chained as needed:
-//!
+//! 
 //! SL_STRUCT_BEGIN(S1, GUID1, kStructVersion1)
 //!     A
 //!     B
 //!     C
 //! SL_STRUCT_END()
-//!
+//! 
 //! SL_STRUCT_BEGIN(S2, GUID2, kStructVersion1) // Note that this is a different struct with new GUID
 //!     D
 //!     E
 //! SL_STRUCT_END()
-//!
+//! 
 //! S1 s1;
 //! S2 s2
 //! s1.next = &s2; // optional parameters in S2

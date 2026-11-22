@@ -51,9 +51,9 @@ using CommandBuffer = void;
 using Device = void;
 
 //! Buffer types used for tagging
-//!
+//! 
 //! IMPORTANT: Each tag must use the unique id
-//!
+//! 
 using BufferType = uint32_t;
 
 // Friend function declaration to access private members for ABI validation static_asserts
@@ -167,7 +167,7 @@ constexpr BufferType kBufferTypeLinearDepth = 49;
 constexpr BufferType kBufferTypeBidirectionalDistortionField = 50;
 //!Optional - Buffer containing particles or other similar transparent effects rendered into it instead of passing it as part of the input color
 constexpr BufferType kBufferTypeTransparencyLayer = 51;
-//!Optional - Buffer to be used in addition to TransparencyLayer which allows 3-channels of Opacity versus 1-channel.
+//!Optional - Buffer to be used in addition to TransparencyLayer which allows 3-channels of Opacity versus 1-channel. 
 //            In this case, TransparencyLayer represents Color (RcGcBc), TransparencyLayerOpacity represents alpha (RaGaBa)'
 constexpr BufferType kBufferTypeTransparencyLayerOpacity = 52;
 //! Optional - Swapchain buffer to be presented
@@ -215,9 +215,9 @@ constexpr BufferType kBufferTypeUpliftOutputColor = 71;
 constexpr BufferType kBufferTypeUpliftControlMask = 72;
 
 //! Features supported with this SDK
-//!
+//! 
 //! IMPORTANT: Each feature must use a unique id
-//!
+//! 
 using Feature = uint32_t;
 
 //! Deep Learning Super Sampling
@@ -252,7 +252,7 @@ constexpr Feature kFeatureDirectSR = 1003;
 
 constexpr Feature kFeatureDLSS_NR = 1004;
 
-// ImGUI
+// ImGUI 
 constexpr Feature kFeatureImGUI = 9999;
 
 #if defined(SL_UNITTEST_ONLY_CODE)
@@ -310,7 +310,7 @@ SL_STRUCT_END()
 
 
 //! Subresource range information, for Vulkan resources
-//!
+//! 
 //! {8D4C316C-D402-4524-89A7-14E79E638E3A}
 SL_STRUCT_BEGIN(SubresourceRange, StructType({ 0x8d4c316c, 0xd402, 0x4524, { 0x89, 0xa7, 0x14, 0xe7, 0x9e, 0x63, 0x8e, 0x3a } }), kStructVersion1)
     //! Vulkan subresource aspectMask
@@ -326,15 +326,15 @@ SL_STRUCT_BEGIN(SubresourceRange, StructType({ 0x8d4c316c, 0xd402, 0x4524, { 0x8
 SL_STRUCT_END()
 
 //! Native resource
-//!
+//! 
 //! {3A9D70CF-2418-4B72-8391-13F8721C7261}
 SL_STRUCT_BEGIN(Resource, StructType({ 0x3a9d70cf, 0x2418, 0x4b72, { 0x83, 0x91, 0x13, 0xf8, 0x72, 0x1c, 0x72, 0x61 } }), kStructVersion1)
     //! Constructors
-    //!
+    //! 
     //! Resource type, native pointer are MANDATORY always
     //! Resource state is MANDATORY unless using D3D11
     //! Resource view, description etc. are MANDATORY only when using Vulkan
-    //!
+    //! 
     Resource(ResourceType _type, void* _native, void* _mem, void* _view, uint32_t _state = UINT_MAX) : BaseStructure(Resource::s_structType, kStructVersion1), type(_type), native(_native), memory(_mem), view(_view), state(_state){};
     Resource(ResourceType _type, void* _native, uint32_t _state = UINT_MAX) : BaseStructure(Resource::s_structType, kStructVersion1), type(_type), native(_native), state(_state) {};
 
@@ -353,9 +353,9 @@ SL_STRUCT_BEGIN(Resource, StructType({ 0x3a9d70cf, 0x2418, 0x4b72, { 0x83, 0x91,
     //! VkImageView/VkBufferView or nullptr
     void* view{};
     //! State as D3D12_RESOURCE_STATES or VkImageLayout
-    //!
+    //! 
     //! IMPORTANT: State is MANDATORY and needs to be correct when tagged resources are actually used.
-    //!
+    //! 
     uint32_t state = UINT_MAX;
     //! Width in pixels
     uint32_t width{};
@@ -389,9 +389,9 @@ SL_STRUCT_BEGIN(Resource, StructType({ 0x3a9d70cf, 0x2418, 0x4b72, { 0x83, 0x91,
 SL_STRUCT_END()
 
 //! Specifies life-cycle for the tagged resource
-//!
+//! 
 //! IMPORTANT: Use 'eOnlyValidNow' and 'eValidUntilEvaluate' ONLY when really needed since it can result in wasting VRAM if SL ends up making unnecessary copies.
-//!
+//! 
 //! If integrating features, like for example DLSS-G, which require tags to be 'eValidUntilPresent' please try to tag everything as 'eValidUntilPresent' first
 //! and only make modifications if upon visual inspection you notice that tags are corrupted when used during the Present frame call.
 enum ResourceLifecycle
@@ -405,7 +405,7 @@ enum ResourceLifecycle
 };
 
 //! Tagged resource
-//!
+//! 
 //! {4C6A5AAD-B445-496C-87FF-1AF3845BE653}
 //! Extensions as part of the `next` ptr:
 //!     PrecisionInfo
@@ -428,9 +428,9 @@ SL_STRUCT_BEGIN(ResourceTag, StructType({ 0x4c6a5aad, 0xb445, 0x496c, { 0x87, 0x
     //! IMPORTANT: New members go here or if optional can be chained in a new struct, see sl_struct.h for details
 SL_STRUCT_END()
 
-//
+// 
 //! Precision info, optional extension for ResourceTag.
-//!
+//! 
 //! {98F6E9BA-8D16-4831-A802-4D3B52FF26BF}
 //! Extensions as part of the `next` ptr:
 //!     ResourceTag
@@ -444,7 +444,7 @@ SL_STRUCT_BEGIN(PrecisionInfo, StructType({ 0x98f6e9ba, 0x8d16, 0x4831, { 0xa8, 
 
     PrecisionInfo(PrecisionInfo::PrecisionFormula formula, float bias, float scale)
         : BaseStructure(PrecisionInfo::s_structType, kStructVersion1), conversionFormula(formula), bias(bias), scale(scale) {};
-
+    
     static std::string getPrecisionFormulaAsStr(PrecisionFormula formula)
     {
         switch (formula)
@@ -476,7 +476,7 @@ SL_STRUCT_END()
 
 //! Resource allocation/deallocation callbacks
 //!
-//! Use these callbacks to gain full control over
+//! Use these callbacks to gain full control over 
 //! resource life cycle and memory allocation tracking.
 //!
 //! @param device - Device to be used (vkDevice or ID3D11Device or ID3D12Device)
@@ -531,13 +531,13 @@ enum class PreferenceFlags : uint64_t
     //! loaded.
     eAllowOTA = 1 << 3,
     //! Do not check OS version when deciding if feature is supported or not
-    //!
-    //! IMPORTANT: ONLY SET THIS FLAG IF YOU KNOW WHAT YOU ARE DOING.
-    //!
+    //! 
+    //! IMPORTANT: ONLY SET THIS FLAG IF YOU KNOW WHAT YOU ARE DOING. 
+    //! 
     //! VARIOUS WIN APIs INCLUDING BUT NOT LIMITED TO `IsWindowsXXX`, `GetVersionX`, `rtlGetVersion` ARE KNOWN FOR RETURNING INCORRECT RESULTS.
     eBypassOSVersionCheck = 1 << 4,
     //! Optional - If specified SL will create DXGI factory proxy rather than modifying the v-table for the base interface.
-    //!
+    //! 
     //! This can help with 3rd party overlays which are NOT integrated with the host application but rather operate via injection.
     eUseDXGIFactoryProxy = 1 << 5,
     //! Optional - Enables loading of plugins downloaded Over The Air (OTA), to
@@ -567,7 +567,7 @@ SL_STRUCT_BEGIN(Preferences, StructType({ 0x1ca10965, 0xbf8e, 0x432b, { 0x8d, 0x
     //! Optional - Number of paths to search
     uint32_t numPathsToPlugins = 0;
     //! Optional - Absolute path to location where logs and other data should be stored
-    //!
+    //! 
     //! NOTE: Set this to nullptr in order to disable logging to a file
     const wchar_t* pathToLogsAndData{};
     //! Optional - Allows resource allocation tracking on the host side
@@ -591,7 +591,7 @@ SL_STRUCT_BEGIN(Preferences, StructType({ 0x1ca10965, 0xbf8e, 0x432b, { 0x8d, 0x
     //! Optional - GUID (like for example 'a0f57b54-1daf-4934-90ae-c4035c19df04')
     const char* projectId{};
     //! Optional - Which rendering API host is planning to use
-    //!
+    //! 
     //! NOTE: To ensure correct `slGetFeatureRequirements` behavior please specify if planning to use Vulkan.
     RenderAPI renderAPI = RenderAPI::eD3D12;
 
@@ -599,9 +599,9 @@ SL_STRUCT_BEGIN(Preferences, StructType({ 0x1ca10965, 0xbf8e, 0x432b, { 0x8d, 0x
 SL_STRUCT_END()
 
 //! Frame tracking handle
-//!
+//! 
 //! IMPORTANT: Use slGetNewFrameToken to obtain unique instance
-//!
+//! 
 //! {830A0F35-DB84-4171-A804-59B206499B18}
 SL_STRUCT_PROTECTED_BEGIN(FrameToken, StructType({ 0x830a0f35, 0xdb84, 0x4171, { 0xa8, 0x4, 0x59, 0xb2, 0x6, 0x49, 0x9b, 0x18 } }), kStructVersion1)
     //! Helper operator to obtain current frame index
@@ -609,7 +609,7 @@ SL_STRUCT_PROTECTED_BEGIN(FrameToken, StructType({ 0x830a0f35, 0xdb84, 0x4171, {
 SL_STRUCT_END()
 
 //! Handle for the unique viewport
-//!
+//! 
 //! {171B6435-9B3C-4FC8-9994-FBE52569AAA4}
 SL_STRUCT_BEGIN(ViewportHandle, StructType({ 0x171b6435, 0x9b3c, 0x4fc8, { 0x99, 0x94, 0xfb, 0xe5, 0x25, 0x69, 0xaa, 0xa4 } }), kStructVersion1)
     ViewportHandle(uint32_t v) : BaseStructure(ViewportHandle::s_structType, kStructVersion1), value(v) {}
@@ -621,7 +621,7 @@ private:
 SL_STRUCT_END()
 
 //! Specifies feature requirement flags
-//!
+//! 
 enum class FeatureRequirementFlags : uint32_t
 {
     //! Rendering APIs
@@ -640,18 +640,18 @@ enum class FeatureRequirementFlags : uint32_t
 SL_ENUM_OPERATORS_32(FeatureRequirementFlags);
 
 //! Specifies feature requirements
-//!
+//! 
 //! {66714097-AC6D-4BC6-8915-1E0F55A6B61F}
 SL_STRUCT_BEGIN(FeatureRequirements, StructType({ 0x66714097, 0xac6d, 0x4bc6, { 0x89, 0x15, 0x1e, 0xf, 0x55, 0xa6, 0xb6, 0x1f } }), kStructVersion2)
     //! Various Flags
     FeatureRequirementFlags flags {};
-
+    
     //! Feature will create this many CPU threads
     uint32_t maxNumCPUThreads{};
 
     //! Feature supports only this many viewports
     uint32_t maxNumViewports{};
-
+    
     //! Required buffer tags
     uint32_t numRequiredTags{};
     const BufferType* requiredTags{};
@@ -663,11 +663,11 @@ SL_STRUCT_BEGIN(FeatureRequirements, StructType({ 0x66714097, 0xac6d, 0x4bc6, { 
     Version driverVersionRequired{};
 
     //! Vulkan specific bits
-
+    
     //! Command queues
     uint32_t vkNumComputeQueuesRequired{};
     uint32_t vkNumGraphicsQueuesRequired{};
-
+    
     //! Device extensions
     uint32_t vkNumDeviceExtensions{};
     const char** vkDeviceExtensions{};
@@ -675,12 +675,12 @@ SL_STRUCT_BEGIN(FeatureRequirements, StructType({ 0x66714097, 0xac6d, 0x4bc6, { 
     uint32_t vkNumInstanceExtensions{};
     const char** vkInstanceExtensions{};
     //! 1.2 features
-    //!
+    //! 
     //! NOTE: Use getVkPhysicalDeviceVulkan12Features from sl_helpers_vk.h
     uint32_t vkNumFeatures12{};
     const char** vkFeatures12{};
     //! 1.3 features
-    //!
+    //! 
     //! NOTE: Use getVkPhysicalDeviceVulkan13Features from sl_helpers_vk.h
     uint32_t vkNumFeatures13{};
     const char** vkFeatures13{};
@@ -692,7 +692,7 @@ SL_STRUCT_BEGIN(FeatureRequirements, StructType({ 0x66714097, 0xac6d, 0x4bc6, { 
 SL_STRUCT_END()
 
 //! Specifies feature's version
-//!
+//! 
 //! {6D5B51F0-076B-486D-9995-5A561043F5C1}
 SL_STRUCT_BEGIN(FeatureVersion, StructType({ 0x6d5b51f0, 0x76b, 0x486d, { 0x99, 0x95, 0x5a, 0x56, 0x10, 0x43, 0xf5, 0xc1 } }), kStructVersion1)
     //! SL version
@@ -704,7 +704,7 @@ SL_STRUCT_BEGIN(FeatureVersion, StructType({ 0x6d5b51f0, 0x76b, 0x486d, { 0x99, 
 SL_STRUCT_END()
 
 //! Specifies either DXGI adapter or VK physical device
-//!
+//! 
 //! {0677315F-A746-4492-9F42-CB6142C9C3D4}
 SL_STRUCT_BEGIN(AdapterInfo, StructType({ 0x677315f, 0xa746, 0x4492, { 0x9f, 0x42, 0xcb, 0x61, 0x42, 0xc9, 0xc3, 0xd4 } }), kStructVersion1)
     //! Locally unique identifier

@@ -5,6 +5,8 @@
 /build-cuda/
 /build-cuda-vs/
 /build-wine/
+/build_test/
+/nvidia/
 /.vs/
 /.vscode/
 /out/

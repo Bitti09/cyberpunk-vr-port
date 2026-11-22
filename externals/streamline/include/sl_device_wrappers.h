@@ -8,7 +8,7 @@ namespace sl
 {
 
 //! Rendering API
-//!
+//! 
 enum class RenderAPI : uint32_t
 {
     eD3D11,
