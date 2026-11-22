@@ -57,7 +57,7 @@ target_link_libraries(cyberpunkvrport_stereo PRIVATE ${cvr_ffx_libs})
 
 # Native NVIDIA DLSS Frame Generation (NGX) needs the DLSS SDK's headers and static NGX loader.
 # Only include/ and lib/ are checked out (a blobless sparse clone): the SDK's runtime DLLs are not
-# needed, the game ships nvngx_dlssg.dll next to its executable. Pinned to DLSS 310.9.1.
+# needed, the game ships nvngx_dlssg.dll next to its executable. Pinned to DLSS 310.9.16.
 set(CVR_DLSS_SDK_ROOT "${CMAKE_BINARY_DIR}/dlss-sdk" CACHE PATH "NVIDIA DLSS SDK (include + lib/Windows_x86_64)")
 set(CVR_DLSS_SDK_COMMIT 9981c6350dc58c0ce21f024fd65e31e851c31689)
 if(NOT EXISTS "${CVR_DLSS_SDK_ROOT}/include/nvsdk_ngx_helpers_dlssg_d3d.h")
